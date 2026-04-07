@@ -1,0 +1,63 @@
+/* Cyberpunk Style for Radiant Surface */
+:root {
+  --primary-glow: #38bdf8;
+  --secondary-glow: #818cf8;
+  --background-dark: #06111f;
+  --panel-bg: rgba(13, 25, 48, 0.4);
+  --border-neon: #3a86ff;
+  --font-main: 'Orbitron', 'Rajdhani', sans-serif;
+  --accent-neon: #ff007f;
+}
+
+body {
+  background-color: var(--background-dark);
+  color: #e2e8f0;
+  font-family: var(--font-main);
+}
+
+/* 渐变全屏背景 */
+.stApp {
+    background: radial-gradient(circle at top right, #111827 0%, #06111f 100%);
+}
+
+/* 卡片面板 - 玻璃拟物风格 */
+[data-testid="stMetric"] {
+    background: var(--panel-bg);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
+}
+
+/* 按钮 - 霓虹渐变效果 */
+.stButton > button {
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.3s ease;
+}
+
+.stButton > button:hover {
+    box-shadow: 0 0 15px var(--primary-glow);
+    transform: translateY(-2px);
+}
+
+/* 聊天框 - 分层设计 */
+.stChatMessage {
+    border-left: 3px solid var(--border-neon);
+    background: rgba(30, 41, 59, 0.3);
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+/* 自定义进度条 */
+.stProgress > div > div > div {
+    background-color: var(--primary-glow);
+}
+
+/* 高科技字体导入 (假设已连网) */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500;700&display=swap');
