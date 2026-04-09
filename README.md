@@ -1,100 +1,205 @@
-# 2026年中国大学生计算机设计大赛大数据主题赛
-**赛题方向：智能体赋能的企业运营分析与决策支持系统**
+# 光之耀面
 
-## 一、 项目背景与数据说明 (基于PDF赛题分析)
+企业级研究助理项目，围绕多轮对话、企业财务分析、同行对比、图表展示与研究报告生成，提供一套面向投研与经营分析场景的交互式工作台。
 
-### 1. 核心目标
-本项目旨在打造一个以**智能体（Agent）**为核心载体的辅助决策工具，聚焦特定领域（如新能源、医药生物、电子信息等），整合多方数据资源，构建具有**自然语言交互体验、能够进行深入多维数据分析**和**定制化内容生成**的智能应用。
-主要服务群体包括：
-- **投资者**：提供低门槛自然语言问答交互与投资数据查询。
-- **企业管理者**：进行企业战略优化、智能诊断及行业对标。
-- **监管机构**：提供风险筛查研判与监控。
+当前主架构已经切换为 React 前端 + FastAPI 后端。仓库中仍保留部分早期 Streamlit 代码，便于兼容旧原型，但当前推荐使用前后端分离模式启动与部署。
 
-### 2. 多源异构数据支持
-根据赛题要求，项目数据来源于官方指定的几类权威公开平台：
-- **公司财务报告**（上交所、深交所、北交所）——用于提炼结构化财务基本面指标、评估企业运营。
-- **行业与个股研究报告**（东方财富研究报告等）——用于提供专家观点分析、事件驱动、趋势预判（非结构化长文本）。
-- **宏观经济数据**（国家统计局——CPI等指标）——用于自上而下的宏观基本面结合（如行业周期性诊断）。
+## 项目结构
 
----
+- `frontend/`
+  React + Vite 前端，负责新对话页、会话管理、图表展示、财务/对比/报告页面。
+- `backend/api/`
+  FastAPI 接口层，提供会话、聊天流式接口、财务接口、对比接口、报告接口。
+- `src/application/`
+  业务服务层，包括财务分析、同行对比、报告生成、评分等逻辑。
+- `src/infrastructure/`
+  基础设施能力，包括文件处理、会话存储等。
+- `agent_engine.py`
+  核心智能体提示词与模型调用封装。
+- `api_server.py`
+  FastAPI 本地启动入口。
+- `app.py`
+  早期 Streamlit 入口，当前不是主推荐入口。
 
-## 二、 答题思路与规划方案
+## 当前能力
 
-打造一份高质量的大赛作品，建议采取“**小切口、深挖掘、强展现**”的总体答卷思路。具体步骤如下：
+- 多轮研究对话与会话管理
+- 上传图片、PDF、Excel、Word、文本文件参与分析
+- 自动解析并展示图表
+- 财务数据查看
+- 同行对比与赛道对标
+- 研究报告 HTML 生成
+- 研究报告 PDF 导出
 
-### 第1步：锁定特定细分领域（垂直化）
-- **不要**试图做所有行业，赛题建议聚焦“特定领域”。建议选择**新能源产业链**、**计算机/电子信息**或**医药生物**，因为这些行业的研报丰富，技术术语多，大模型在术语解释和财务建模及图表穿透上的表现容易打动评委。
+## 技术栈
 
-### 第2步：搭建闭环的“数据-大模型-智能分析”工作流
-- **数据管线建设**：运用自动化爬虫或现有数据库下载工具从交易所和东财批量下载最新PDF研报、财务季报与年报，以及统计局的宏观时序指标。
-- **RAG（检索增强生成）知识库**：通过OCR与文档分块技术解析财报和研报，搭建向量数据库，保证智能体回答带溯源。
-- **智能体（Agent）编排**：设计混合插件体系。针对宏观数据与财务科目，调用Text2SQL工具进行精确查询；针对研报和风险揭示，调用知识库（RAG检索组件）进行汇总和生成。
+- 前端：React 18、TypeScript、Vite、ECharts
+- 后端：FastAPI、Uvicorn
+- Python 侧依赖：pandas、akshare、pdfplumber、langchain、openai 等
+- 模型接入：当前代码中使用火山引擎 Ark / 豆包接口配置
 
-### 第3步：实现赛题规定的四大核心维度（功能对标点）
-- ✅ **智能问数服务**：实现大模型能把自然语言翻译成SQL以检索企业收入、利润等指标；并且能够根据问答内容澄清需求，支持多轮交互。
-- ✅ **企业运营评估**：将经典财务分析模型（如杜邦分析法、波特五力模型）封装成智能体的思考逻辑（Prompt），让Agent为目标企业生成体检报告。
-- ✅ **风险与机会洞察**：根据研报情感倾向和宏观趋势，主动预警行业或企业潜在经营风险，输出买卖侧的观点机会。
-- ✅ **定制化报告生成**：通过归因分析给出“结论+可验证的出处链接（溯源）”，生成结构化Markdown或PDF长篇报告，提升可信度。
+## 环境要求
 
----
+- Python 3.10 及以上
+- Node.js 18 及以上
+- npm 9 及以上
 
-## 三、 项目系统框架实现设计
+## 环境变量
 
-本项目采用前后端分离并结合LLM开发框架的架构体系：
+项目根目录下需要 `.env` 文件。当前代码实际使用到的主要变量如下：
 
-### 1. 数据资产层 (Data Layer)
-- **结构化业务库 (MySQL/PostgreSQL)**：存储基本面财报指标、宏观CPI等二维表数据。
-- **非结构化向量库 (Milvus/FAISS/Chroma)**：存储切分并向量化后的年度报告、券商研究报告（支持高维语义检索）。
+```env
+ARK_API_KEY=你的密钥
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+DOUBAO_SEED_LITE_KEY=你的密钥
+DOUBAO_SEED_LITE_ENDPOINT=你的endpoint
+```
 
-### 2. 核心智能系统层 (Agent Engine)
-基于 **Dify / LangChain / AutoGen** 进行框架搭建：
-- **意图路由调度 (Router)**：判断用户问题是查询“利润数值”还是“分析未来的风险”，分配给对应的Agent工具。
-- **工具集 (Tools)**：
-  - `SQL_Agent_Tool`：连接结构化关系型数据库。
-  - `Vector_Retriever_Tool`：连接向量数据库做语义查找。
-  - `Calculator_Tool`：进行同比/环比/财务指标运算防大模型幻觉。
-  - `Report_Generator_Tool`：按模板结构拼接生成特定报告。
-- **记忆与追踪 (Memory & Tracing)**：保存多轮的历史对话（LangSmith/Dify日志），提供可信源引用能力（Citations）。
+说明：
 
-### 3. 应用服务与交互层 (Application & UI Layer)
-- **前端页面 (Streamlit / Gradio / React / Vue)**：搭建现代化的极简企业级控制台。建议使用深色商务风格或具有玻璃拟物感的Dashboard界面。
-- **交互模块**：
-  - **核心对话框**：用户对话输入与流式文字（Stream）输出。
-  - **数据大屏与图表展示**：Echarts/AntV，将Agent返回的数值结果渲染成折线图、柱状图。
-  - **报告下载区**：系统批量输出的一键下载（导出Word/PDF格式）。
+- `.env` 已经在 `.gitignore` 中忽略，不会被自动提交。
+- 不建议把真实密钥提交到远端仓库。
 
----
+## 本地开发启动
 
-## 四、 后续行动清单 (Action Items)
-1. **获取语料**：编写爬虫从东财、上交所及国家统计局批量下载某个领域近2年的数据样本，构建最小数据集（MVP）。
-2. **知识库搭建**：针对下载的PDF研发提取脚本（可复用项目目前使用的PyPDF2或采用pdfplumber），尝试将财报解析存入向量数据库中。
-3. **LLM接入测试**：申请合适的国产大模型API。
-4. **原型构建**：基于Streamlit快速拉起一个Web界面进行效果测试。
-5. **容器化打包**：编写规范的 Dockerfile 与 docker-compose，确保大模型运行节点可脱离宿主机纯净复现。
+### 1. 安装 Python 依赖
 
----
-
-## 五、 部署与复现指南 (含 Docker 一键部署)
-
-本项目为了确保在大赛评审环节万无一失，提供了 **Docker 集装箱级沙盒一键部署**方案，彻底消除评委电脑环境由于依赖缺失导致的报错问题。
-
-### 方法 1：Docker Compose 工业级一键启动 (强烈推荐 ✅)
-只要您的电脑安装了 Docker，仅需两步即可唤起完整的企业级会话主面板：
-1. 请确保项目根目录下存在 `.env` 文件（可由 `.env.example` 复制并填入合规的 DeepSeek API Key）。
-2. 在项目根目录执行以下终端命令：
-   ```bash
-   docker-compose up -d --build
-   ```
-系统将在后台自动编译并拉起该系统。启动成功后，打开浏览器访问：**`http://localhost:8501`** 即可沉浸式使用！
-
-### 方法 2：传统 Python 虚拟环境部署
-如果您没有 Docker，依然可以通过原生环境闪电测试：
 ```bash
-# 1. 安装项目核心依赖
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
+```
 
-# 2. 补全 .env 文件中的 API Key
+### 2. 启动后端
 
-# 3. 拉起前端大屏交互界面
-streamlit run app.py
+在项目根目录执行：
+
+```bash
+python api_server.py
+```
+
+或直接使用 Uvicorn：
+
+```bash
+uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
+```
+
+默认后端地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+### 3. 启动前端
+
+进入前端目录执行：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+默认前端地址：
+
+```text
+http://127.0.0.1:5173
+```
+
+### 4. 前后端联调
+
+前端默认通过 `VITE_API_BASE` 读取后端地址；如果未设置，则回退为：
+
+```text
+http://127.0.0.1:8000
+```
+
+如果你的后端不是这个地址，可在启动前端前设置：
+
+```bash
+set VITE_API_BASE=http://127.0.0.1:8000
+```
+
+Windows PowerShell 可使用：
+
+```powershell
+$env:VITE_API_BASE="http://127.0.0.1:8000"
+npm run dev
+```
+
+## 前端构建
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+构建产物位于：
+
+```text
+frontend/dist
+```
+
+## 生产部署建议
+
+推荐采用“前端静态部署 + 后端 API 服务”模式。
+
+### 后端
+
+```bash
+pip install -r requirements.txt
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
+```
+
+### 前端
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+将 `frontend/dist` 交给 Nginx、静态托管平台或其他 Web 服务器提供访问。
+
+生产构建时，建议提前设置：
+
+```bash
+VITE_API_BASE=http://你的后端地址:8000
+```
+
+然后再执行 `npm run build`。
+
+## Git 与远端仓库
+
+当前仓库可以本地提交，也可以绑定 GitHub / Gitee 远端仓库。
+
+常用命令：
+
+```bash
+git status
+git add .
+git commit -m "你的提交说明"
+git remote add origin <远端仓库地址>
+git push -u origin main
+```
+
+更详细的远端绑定、推送和部署说明，请查看 [DEPLOYMENT.md](/c:/Users/Lenovo/Desktop/项目agent2.0/DEPLOYMENT.md)。
+
+## 兼容说明
+
+- `app.py` 对应的是早期 Streamlit 原型。
+- 当前主要交付形态为 React + FastAPI。
+- 如果后续继续演进，建议统一围绕 `frontend/ + backend/api/ + src/application/` 这套结构维护。
+
+## 当前版本保存
+
+当前项目已经保存过一次本地 git 提交：
+
+```text
+7d9bb90 feat: save current research assistant version
+```
+
+如果你要继续往远端推送，可以在绑定远端后直接执行：
+
+```bash
+git push -u origin main
 ```
