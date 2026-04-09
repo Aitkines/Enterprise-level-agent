@@ -107,7 +107,8 @@ def get_company_fundamental(stock_code: str):
         if stock_code in MOCK_DATA_POOL:
             logger.warning(f"API 抓取失败({e})，已启用 [{stock_code}] 的 2026 模拟财务数据。")
             return MOCK_DATA_POOL[stock_code]
-        return {"error": f"获取基本面失败: {str(e)}"}
+        logger.exception("获取基本面数据失败，stock_code=%s", stock_code)
+        return {"error": "数据源暂时未返回该公司的基本面数据，请稍后重试，或直接使用 6 位股票代码查询。"}
 
 def get_industry_valuation(industry_name: str):
     """

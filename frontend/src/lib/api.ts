@@ -28,6 +28,8 @@ export interface SessionSummary {
 export interface SessionDetail {
   session: SessionSummary;
   messages: ChatMessage[];
+  active_target?: string | null;
+  active_targets?: string[];
 }
 
 export interface OverviewResponse {
@@ -66,6 +68,11 @@ export interface FinancialResponse {
   source?: string | null;
   unit_hint?: string | null;
   rows: Array<Record<string, unknown>>;
+  sections?: Array<{
+    key: string;
+    title: string;
+    rows: Array<Record<string, unknown>>;
+  }>;
   error?: string | null;
 }
 
@@ -89,7 +96,20 @@ export interface ComparisonResponse {
     source_stats?: Array<Record<string, unknown>>;
     latest_period_stats?: Array<Record<string, unknown>>;
   };
-  scoring: Record<string, unknown>;
+  scoring: {
+    status?: string;
+    summary?: string;
+    conclusion?: string;
+    reason_lines?: string[];
+    sample_count?: number;
+    metric_count?: number;
+    target_name?: string;
+    target_rank?: number;
+    target_score?: number;
+    ranking_rows?: Array<Record<string, unknown>>;
+    weight_rows?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
 }
 
 export interface ChatDoneEvent {
@@ -169,7 +189,7 @@ export function getFinancial(target: string) {
 }
 
 export function getComparison(symbol: string) {
-  return request<ComparisonResponse>(`/api/comparison/${encodeURIComponent(symbol)}`);
+  return request<ComparisonResponse>(`/api/comparison/${encodeURIComponent(symbol)}?limit=16`);
 }
 
 export function buildReport(messages: ChatMessage[], activeTarget?: string | null) {
@@ -180,6 +200,32 @@ export function buildReport(messages: ChatMessage[], activeTarget?: string | nul
       active_target: activeTarget ?? null,
     }),
   });
+}
+
+export async function buildReportPdf(messages: ChatMessage[], activeTarget?: string | null) {
+  const response = await fetch(`${API_BASE}/api/report/pdf`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messages,
+      active_target: activeTarget ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Request failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  return {
+    blob,
+    filename: match?.[1] ?? `research_report_${Date.now()}.pdf`,
+  };
 }
 
 export async function sendChatStream(

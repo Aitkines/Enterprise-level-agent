@@ -4,7 +4,7 @@ import json
 import math
 import re
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -128,11 +128,20 @@ def _delete_session_meta(session_id: str) -> None:
 
 
 def _safe_value(value: Any) -> Any:
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if isinstance(value, float) and math.isnan(value):
         return None
     if hasattr(value, "item"):
         try:
             converted = value.item()
+            if isinstance(converted, (date, datetime)):
+                return converted.isoformat()
             if isinstance(converted, float) and math.isnan(converted):
                 return None
             return converted
@@ -177,11 +186,73 @@ def _load_session_messages(session_id: str) -> list[dict[str, Any]]:
     messages = session_repository.load_messages_if_exists(filename)
     if messages is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-    return messages
+    normalized_messages: list[dict[str, Any]] = []
+    for message in messages:
+        if message.get("role") == "assistant":
+            payload = message.get("payload") or {}
+            seed_text = str(payload.get("raw_text") or message.get("content") or payload.get("body") or "")
+            rebuilt_payload = build_response_payload_from_text(seed_text, source="session_rehydrate")
+            payload = {
+                **payload,
+                **rebuilt_payload,
+                "raw_text": rebuilt_payload.get("raw_text") or seed_text,
+                "body": rebuilt_payload.get("body") or payload.get("body") or message.get("content") or "",
+                "chart": rebuilt_payload.get("chart"),
+                "charts": rebuilt_payload.get("charts") or [],
+            }
+            message = {**message, "payload": payload}
+        normalized_messages.append(message)
+    return normalized_messages
 
 
 def _persist_messages(session_id: str, messages: list[dict[str, Any]]) -> None:
     session_repository.save_messages(_session_filename(session_id), messages)
+
+
+def _merge_unique_targets(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    targets: list[str] = []
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        targets.append(normalized)
+    return targets
+
+
+def _extract_targets_from_text(text: str) -> list[str]:
+    if not text:
+        return []
+    return _merge_unique_targets(re.findall(r"\d{6}", text))
+
+
+def _derive_targets_from_messages(messages: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
+    collected_targets: list[str] = []
+    for message in reversed(messages):
+        payload = message.get("payload") or {}
+        candidate_texts = [
+            str(message.get("content") or ""),
+            str(payload.get("body") or ""),
+            str(payload.get("raw_text") or ""),
+        ]
+        for text in candidate_texts:
+            collected_targets.extend(_extract_targets_from_text(text))
+
+    active_targets = _merge_unique_targets(collected_targets)
+    if active_targets:
+        return active_targets[0], active_targets
+
+    recent_user_text = "\n".join(
+        str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "user"
+    )
+    detected_targets = _merge_unique_targets(company_service.identify_target_companies(recent_user_text))
+    if detected_targets:
+        return detected_targets[0], detected_targets
+
+    return None, []
 
 
 def _normalize_targets(prompt: str, active_target: str | None, active_targets: list[str]) -> tuple[list[str], str | None, list[str]]:
@@ -265,16 +336,19 @@ def create_session(request: SessionCreateRequest) -> SessionDetail:
     _persist_messages(session_id, messages)
     _set_custom_title(session_id, seed_title)
     summary = _summary_from_messages(session_id, messages)
-    return SessionDetail(session=summary, messages=[])
+    return SessionDetail(session=summary, messages=[], active_target=None, active_targets=[])
 
 
 @app.get("/api/sessions/{session_id}", response_model=SessionDetail)
 def get_session(session_id: str) -> SessionDetail:
     messages = _load_session_messages(session_id)
     summary = _summary_from_messages(session_id, messages)
+    active_target, active_targets = _derive_targets_from_messages(messages)
     return SessionDetail(
         session=summary,
         messages=[ChatMessage(**message) for message in messages],
+        active_target=active_target,
+        active_targets=active_targets,
     )
 
 
@@ -283,9 +357,12 @@ def rename_session(session_id: str, request: SessionRenameRequest) -> SessionDet
     messages = _load_session_messages(session_id)
     _set_custom_title(session_id, normalize_manual_title(request.title) or "新对话")
     summary = _summary_from_messages(session_id, messages)
+    active_target, active_targets = _derive_targets_from_messages(messages)
     return SessionDetail(
         session=summary,
         messages=[ChatMessage(**message) for message in messages],
+        active_target=active_target,
+        active_targets=active_targets,
     )
 
 
@@ -413,7 +490,7 @@ def get_financials(target: str) -> FinancialResponse:
             target=target,
             symbol=symbol,
             has_data=False,
-            error="No financial data available for the requested target.",
+            error=(financial_table.error if financial_table and getattr(financial_table, "error", None) else "No financial data available for the requested target."),
         )
 
     frame = financial_table.to_dataframe()
@@ -424,11 +501,12 @@ def get_financials(target: str) -> FinancialResponse:
         source=financial_table.source,
         unit_hint=financial_table.unit_hint,
         rows=_records_from_dataframe(frame),
+        sections=_to_jsonable(financial_table.sections),
     )
 
 
 @app.get("/api/comparison/{symbol}", response_model=ComparisonResponse)
-def get_comparison(symbol: str, limit: int = 10, max_metrics: int = 4) -> ComparisonResponse:
+def get_comparison(symbol: str, limit: int = 16, max_metrics: int = 4) -> ComparisonResponse:
     snapshots = comparison_service.get_peer_snapshots_for_symbol(symbol, limit=limit)
     track_template = comparison_service.get_track_template_for_symbol(symbol)
     metric_keys = [metric.key for metric in track_template.metrics] if track_template else []
@@ -443,6 +521,7 @@ def get_comparison(symbol: str, limit: int = 10, max_metrics: int = 4) -> Compar
         metric_display_map=metric_display_map,
     )
     scoring_result = track_scoring_service.score_snapshots(
+        symbol=symbol,
         snapshots=snapshots,
         track_template=track_template,
     )
@@ -486,3 +565,20 @@ def build_report(request: ReportRequest) -> ReportResponse:
     )
     html = html_bytes.decode("utf-8", errors="replace")
     return ReportResponse(html=html)
+
+
+@app.post("/api/report/pdf")
+def build_report_pdf(request: ReportRequest) -> StreamingResponse:
+    generated_at = datetime.now()
+    try:
+        pdf_bytes = report_service.build_pdf_report(
+            messages=[message.model_dump() for message in request.messages],
+            generated_at=generated_at,
+            active_target=request.active_target,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    filename_seed = re.sub(r"[^\w\u4e00-\u9fa5\-]+", "_", (request.active_target or "research_report")).strip("_")
+    filename = f"{filename_seed or 'research_report'}_{generated_at.strftime('%Y%m%d_%H%M')}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers=headers)

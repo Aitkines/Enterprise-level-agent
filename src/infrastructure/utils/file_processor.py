@@ -1,4 +1,6 @@
 import io
+import zipfile
+import xml.etree.ElementTree as ET
 import pandas as pd
 import pdfplumber
 from typing import Optional
@@ -8,7 +10,8 @@ class FileProcessor:
     def process_file(file_name: str, file_bytes: bytes) -> Optional[str]:
         """
         Parses the uploaded file and returns a text representation for the AI Agent.
-        Supports PDF, Excel (xlsx, xls), and CSV.
+        Supports PDF, Excel (xlsx, xls), CSV, text-like files, Word (.docx),
+        and image metadata for multimodal uploads.
         """
         ext = file_name.split('.')[-1].lower()
         
@@ -21,6 +24,16 @@ class FileProcessor:
                 return FileProcessor._parse_csv(file_bytes)
             elif ext in ['txt', 'md']:
                 return file_bytes.decode('utf-8', errors='replace')
+            elif ext == 'docx':
+                return FileProcessor._parse_docx(file_bytes)
+            elif ext == 'doc':
+                return (
+                    f"[Word Document Uploaded: {file_name}]\\n"
+                    "Legacy .doc files are accepted, but structured text extraction is not yet available. "
+                    "Please rely on the file context and your prompt for downstream analysis."
+                )
+            elif ext in ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']:
+                return FileProcessor._parse_image(file_name, file_bytes)
             else:
                 return f"[Unsupported File Format: {ext}]"
         except Exception as e:
@@ -57,3 +70,28 @@ class FileProcessor:
     def _parse_csv(file_bytes: bytes) -> str:
         df = pd.read_csv(io.BytesIO(file_bytes))
         return df.to_markdown(index=False)
+
+    @staticmethod
+    def _parse_docx(file_bytes: bytes) -> str:
+        paragraphs = []
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            xml_content = archive.read("word/document.xml")
+        root = ET.fromstring(xml_content)
+        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+        for paragraph in root.findall(".//w:p", namespace):
+            parts = [node.text for node in paragraph.findall(".//w:t", namespace) if node.text]
+            if parts:
+                paragraphs.append("".join(parts))
+
+        return "\\n\\n".join(paragraphs)
+
+    @staticmethod
+    def _parse_image(file_name: str, file_bytes: bytes) -> str:
+        size_kb = round(len(file_bytes) / 1024, 1)
+        return (
+            f"[Image Uploaded: {file_name}]\\n"
+            f"File size: {size_kb} KB. "
+            "The image has been attached through the multimodal upload entry. "
+            "Current backend processing preserves image context metadata for analysis."
+        )

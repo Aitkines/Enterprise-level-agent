@@ -21,6 +21,8 @@ class SessionSummary(BaseModel):
 class SessionDetail(BaseModel):
     session: SessionSummary
     messages: list[ChatMessage]
+    active_target: str | None = None
+    active_targets: list[str] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -57,6 +59,7 @@ class FinancialResponse(BaseModel):
     source: str | None = None
     unit_hint: str | None = None
     rows: list[dict[str, Any]] = Field(default_factory=list)
+    sections: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -76,4 +79,3 @@ class ReportRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     html: str
-
