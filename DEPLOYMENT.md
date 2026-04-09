@@ -27,6 +27,54 @@ DOUBAO_SEED_LITE_KEY=你的密钥
 DOUBAO_SEED_LITE_ENDPOINT=你的endpoint
 ```
 
+仓库中已经提供：
+
+```text
+.env.example
+```
+
+你可以先复制：
+
+```bash
+copy .env.example .env
+```
+
+然后再把占位值替换成真实密钥。
+
+### 2.1 一键启动脚本
+
+当前仓库已经提供 Windows 一键启动脚本：
+
+```text
+start_dev.ps1
+start_dev.bat
+```
+
+首次运行推荐：
+
+```powershell
+.\start_dev.ps1 -InstallDeps
+```
+
+普通启动：
+
+```powershell
+.\start_dev.ps1
+```
+
+如果不方便执行 PowerShell 脚本，也可以双击：
+
+```text
+start_dev.bat
+```
+
+脚本会：
+
+- 检查 `python` 和 `npm`
+- 在缺少 `.env` 时自动从 `.env.example` 复制一份
+- 可选安装 Python 与前端依赖
+- 分别拉起后端和前端窗口
+
 ### 3. 启动后端
 
 ```bash

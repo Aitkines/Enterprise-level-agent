@@ -58,9 +58,45 @@ DOUBAO_SEED_LITE_ENDPOINT=你的endpoint
 说明：
 
 - `.env` 已经在 `.gitignore` 中忽略，不会被自动提交。
+- 仓库现在提供了 `.env.example`，可直接复制为 `.env` 后填写真实密钥。
 - 不建议把真实密钥提交到远端仓库。
 
+### 快速生成 `.env`
+
+```bash
+copy .env.example .env
+```
+
+然后把 `.env` 里的占位值替换成你自己的真实配置。
+
 ## 本地开发启动
+
+### 一键启动
+
+Windows 下现在可以直接使用根目录脚本一键拉起前后端：
+
+```powershell
+.\start_dev.ps1
+```
+
+如果是第一次运行，建议带上依赖安装参数：
+
+```powershell
+.\start_dev.ps1 -InstallDeps
+```
+
+如果你的 PowerShell 执行策略较严格，也可以直接双击：
+
+```text
+start_dev.bat
+```
+
+脚本行为说明：
+
+- 若未检测到 `.env`，会自动从 `.env.example` 复制一份并提示你先填写密钥。
+- 会分别打开两个终端窗口，启动后端和前端。
+- 默认后端地址为 `http://127.0.0.1:8000`
+- 默认前端地址为 `http://127.0.0.1:5173`
 
 ### 1. 安装 Python 依赖
 
