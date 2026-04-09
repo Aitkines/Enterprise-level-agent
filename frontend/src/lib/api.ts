@@ -129,7 +129,8 @@ interface StreamHandlers {
   onError: (message: string) => void;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+const rawApiBase = import.meta.env.VITE_API_BASE;
+const API_BASE = rawApiBase === undefined ? "http://127.0.0.1:8000" : rawApiBase.replace(/\/$/, "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

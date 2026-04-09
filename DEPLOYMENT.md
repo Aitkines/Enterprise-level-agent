@@ -120,7 +120,58 @@ npm run dev
 
 ## 二、生产部署
 
-## 后端部署
+## Docker 部署
+
+当前仓库已经提供：
+
+```text
+Dockerfile.backend
+frontend/Dockerfile
+frontend/nginx.conf
+docker-compose.yml
+```
+
+### 1. 准备 `.env`
+
+```bash
+copy .env.example .env
+```
+
+并填入真实模型配置。
+
+### 2. 构建并启动
+
+```bash
+docker compose up --build
+```
+
+启动后默认访问：
+
+```text
+前端: http://127.0.0.1:5173
+后端: http://127.0.0.1:8000
+```
+
+### 3. 后台运行
+
+```bash
+docker compose up -d --build
+```
+
+### 4. 停止容器
+
+```bash
+docker compose down
+```
+
+### 5. Docker 方案说明
+
+- 后端容器基于 `Dockerfile.backend`
+- 前端容器基于 `frontend/Dockerfile`
+- 前端使用 Nginx 托管构建产物
+- Nginx 会将 `/api` 自动代理到后端容器
+- 因此浏览器访问前端时，不需要额外手工配置 API 域名
+## 原生后端部署
 
 建议使用 Uvicorn 直接启动，或接入进程管理器。
 
@@ -135,7 +186,7 @@ uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 - Nginx 反向代理
 - HTTPS 证书
 
-## 前端部署
+## 原生前端部署
 
 ```bash
 cd frontend
