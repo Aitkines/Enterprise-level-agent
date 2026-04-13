@@ -677,6 +677,11 @@ class ComparisonService:
         return INDUSTRY_TEMPLATES.get(template_key, INDUSTRY_TEMPLATES["默认"])
 
     def build_track_chart_specs(self, symbol, limit=10, max_metrics=4):
+        # AI辅助标注（序号3）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-03-31 09:00-12:00。
+        # 对应表格：数据处理与代码辅助。
+        # 本段“指标筛选 -> 图表数据组织 -> 结论文案补全”的生成脚本思路参考了 AI 建议，
+        # 最终图表字段、排序逻辑和展示文案由人工按项目页面结构调整。
         snapshots = self.get_peer_snapshots_for_symbol(symbol, limit=limit)
         track_template = self.get_track_template_for_symbol(symbol)
         if not snapshots or not track_template:

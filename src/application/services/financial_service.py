@@ -301,6 +301,11 @@ class FinancialService:
         return rows
 
     def get_financial_table(self, symbol_raw: str) -> FinancialTableDTO | None:
+        # AI辅助标注（序号3）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-03-31 09:00-12:00。
+        # 对应表格：数据处理与代码辅助。
+        # 此处的数据清洗、最近期裁剪、多数据源择优和财务核心字段聚合，
+        # 参考了 AI 提供的 Python 处理框架，后续由人工按真实数据接口和业务口径重构完善。
         symbol = self._resolve_symbol(symbol_raw)
         if symbol is None:
             return FinancialTableDTO(

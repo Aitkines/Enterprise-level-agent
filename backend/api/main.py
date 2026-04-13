@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sys
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable
+from uuid import uuid4
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
@@ -25,6 +29,7 @@ from src.application.services.comparison_service import ComparisonService
 from src.application.services.dashboard_service import DashboardService
 from src.application.services.data_quality_service import DataQualityService
 from src.application.services.financial_service import FinancialService
+from src.application.services.local_knowledge_service import LocalKnowledgeService
 from src.application.services.report_service import ReportService
 from src.application.services.track_scoring_service import TrackScoringService
 from src.infrastructure.repositories.session_repository import SessionRepository
@@ -64,17 +69,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# AI辅助标注（序号1）：
+# 工具/时间：Doubao-Seed-2.0-lite，2026-03-28 14:00-18:00。
+# 对应表格：系统架构设计与技术方案构建。
+# 这里按照“API层统一编排 + 服务层拆分 + 仓储层持久化”的方案组织模块，
+# 初始分层思路参考了 AI 给出的架构建议，后续由人工完成实际服务接线与接口细化。
 chat_service = ChatService()
 company_service = CompanyService()
 comparison_service = ComparisonService()
 dashboard_service = DashboardService()
 data_quality_service = DataQualityService()
 financial_service = FinancialService()
+local_knowledge_service = LocalKnowledgeService()
 report_service = ReportService()
 track_scoring_service = TrackScoringService()
 session_repository = SessionRepository()
 SESSION_META_PATH = ROOT_DIR / "data" / "session_meta.json"
+SESSION_META_LOCK = RLock()
 
 
 def _sanitize_session_id(value: str) -> str:
@@ -84,15 +95,37 @@ def _sanitize_session_id(value: str) -> str:
 
 def _build_unique_session_id(seed: str | None) -> str:
     base = _sanitize_session_id(build_default_session_id(seed or "session"))
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{base}_{timestamp}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return f"{base}_{timestamp}_{uuid4().hex[:6]}"
 
 
 def _session_filename(session_id: str) -> str:
     return session_id if session_id.endswith(".json") else f"{session_id}.json"
 
 
-def _load_session_meta() -> dict[str, dict[str, Any]]:
+def _write_json_atomic(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            delete=False,
+            suffix=".tmp",
+        ) as temp_file:
+            json.dump(payload, temp_file, ensure_ascii=False, indent=2)
+            temp_path = temp_file.name
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def _read_session_meta_unlocked() -> dict[str, dict[str, Any]]:
     if not SESSION_META_PATH.exists():
         return {}
     try:
@@ -101,12 +134,19 @@ def _load_session_meta() -> dict[str, dict[str, Any]]:
         return {}
 
 
-def _save_session_meta(meta: dict[str, dict[str, Any]]) -> None:
+def _write_session_meta_unlocked(meta: dict[str, dict[str, Any]]) -> None:
     SESSION_META_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_META_PATH.write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _write_json_atomic(SESSION_META_PATH, meta)
+
+
+def _load_session_meta() -> dict[str, dict[str, Any]]:
+    with SESSION_META_LOCK:
+        return _read_session_meta_unlocked()
+
+
+def _save_session_meta(meta: dict[str, dict[str, Any]]) -> None:
+    with SESSION_META_LOCK:
+        _write_session_meta_unlocked(meta)
 
 
 def _get_custom_title(session_id: str) -> str | None:
@@ -114,17 +154,19 @@ def _get_custom_title(session_id: str) -> str | None:
 
 
 def _set_custom_title(session_id: str, title: str) -> None:
-    meta = _load_session_meta()
-    meta.setdefault(session_id, {})
-    meta[session_id]["title"] = title
-    _save_session_meta(meta)
+    with SESSION_META_LOCK:
+        meta = _read_session_meta_unlocked()
+        meta.setdefault(session_id, {})
+        meta[session_id]["title"] = title
+        _write_session_meta_unlocked(meta)
 
 
 def _delete_session_meta(session_id: str) -> None:
-    meta = _load_session_meta()
-    if session_id in meta:
-        meta.pop(session_id, None)
-        _save_session_meta(meta)
+    with SESSION_META_LOCK:
+        meta = _read_session_meta_unlocked()
+        if session_id in meta:
+            meta.pop(session_id, None)
+            _write_session_meta_unlocked(meta)
 
 
 def _safe_value(value: Any) -> Any:
@@ -187,26 +229,53 @@ def _load_session_messages(session_id: str) -> list[dict[str, Any]]:
     if messages is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     normalized_messages: list[dict[str, Any]] = []
+    latest_user_prompt = ""
     for message in messages:
+        if message.get("role") == "user":
+            latest_user_prompt = str(message.get("content") or "")
         if message.get("role") == "assistant":
             payload = message.get("payload") or {}
             seed_text = str(payload.get("raw_text") or message.get("content") or payload.get("body") or "")
-            rebuilt_payload = build_response_payload_from_text(seed_text, source="session_rehydrate")
+            base_text = _strip_inline_source_citations(_strip_source_note(seed_text))
+            inferred_targets = _merge_unique_targets(
+                [
+                    *_extract_targets_from_text(base_text),
+                    *_extract_targets_from_text(latest_user_prompt),
+                ]
+            )
+            if not inferred_targets and latest_user_prompt:
+                inferred_targets = _merge_unique_targets(company_service.identify_target_companies(latest_user_prompt))
+
+            refreshed_text = _append_source_note(
+                base_text,
+                prompt=latest_user_prompt,
+                active_target=inferred_targets[0] if inferred_targets else None,
+                active_targets=inferred_targets,
+            )
+            rebuilt_payload = build_response_payload_from_text(refreshed_text, source="session_rehydrate")
             payload = {
                 **payload,
                 **rebuilt_payload,
-                "raw_text": rebuilt_payload.get("raw_text") or seed_text,
-                "body": rebuilt_payload.get("body") or payload.get("body") or message.get("content") or "",
+                "raw_text": rebuilt_payload.get("raw_text") or refreshed_text,
+                "body": rebuilt_payload.get("body") or payload.get("body") or refreshed_text,
                 "chart": rebuilt_payload.get("chart"),
                 "charts": rebuilt_payload.get("charts") or [],
             }
-            message = {**message, "payload": payload}
+            message = {**message, "content": refreshed_text, "payload": payload}
         normalized_messages.append(message)
     return normalized_messages
 
 
 def _persist_messages(session_id: str, messages: list[dict[str, Any]]) -> None:
     session_repository.save_messages(_session_filename(session_id), messages)
+
+
+def _append_chat_exchange(session_id: str, prompt: str, reply: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    new_messages = [
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": reply, "payload": payload},
+    ]
+    return session_repository.append_messages(_session_filename(session_id), new_messages)
 
 
 def _merge_unique_targets(values: Iterable[str]) -> list[str]:
@@ -275,11 +344,102 @@ def _compose_chat_messages(existing_messages: list[dict[str, Any]], prompt: str,
     return messages
 
 
+def _strip_source_note(text: str) -> str:
+    value = str(text or "")
+    value = re.sub(r"\n{2,}数据来源说明\s*[\s\S]*$", "", value, flags=re.IGNORECASE).rstrip()
+    return value.strip()
+
+
+def _strip_inline_source_citations(text: str) -> str:
+    value = str(text or "")
+    patterns = [
+        r"[（(]\s*来源[:：][^()（）\n]{0,200}[）)]",
+        r"[（(]\s*引自[^()（）\n]{0,200}[）)]",
+        r"[（(]\s*数据来源[:：][^()（）\n]{0,200}[）)]",
+    ]
+    for pattern in patterns:
+        value = re.sub(pattern, "", value, flags=re.IGNORECASE)
+    line_patterns = [
+        r"(?im)^\s*[-]{3,}\s*$",
+        r"(?im)^\s*系统统一来源说明[:：].*$",
+        r"(?im)^\s*本回答.*?来自赛题路径文档.*$",
+        r"(?im)^\s*数据线索来自赛题路径文档.*$",
+    ]
+    for pattern in line_patterns:
+        value = re.sub(pattern, "", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
+    return value.strip()
+
+
+def _sanitize_history_for_model(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for message in messages:
+        content = _strip_source_note(str(message.get("content") or ""))
+        payload = message.get("payload")
+        if isinstance(payload, dict):
+            payload = {
+                **payload,
+                "body": _strip_source_note(str(payload.get("body") or "")),
+                "raw_text": _strip_source_note(str(payload.get("raw_text") or "")),
+            }
+        sanitized.append({**message, "content": content, "payload": payload})
+    return sanitized
+
+
+def _build_augmented_prompt(
+    prompt: str,
+    active_target: str | None,
+    active_targets: list[str],
+    uploaded_context: list[str] | None = None,
+) -> str:
+    sections: list[str] = []
+
+    local_context = local_knowledge_service.build_context(
+        prompt=prompt,
+        active_target=active_target,
+        active_targets=active_targets,
+    )
+    if local_context:
+        sections.append(local_context)
+
+    if uploaded_context:
+        sections.append(
+            "[以下为用户本次上传的材料，请优先结合材料内容回答，并在结尾来源说明中列出上传文件名]\n"
+            + "\n".join(uploaded_context)
+        )
+
+    if not sections:
+        return prompt
+
+    return f"用户问题: {prompt}\n\n" + "\n\n".join(sections)
+
+
+def _append_source_note(
+    reply: str,
+    prompt: str = "",
+    active_target: str | None = None,
+    active_targets: list[str] | None = None,
+    uploaded_file_names: list[str] | None = None,
+) -> str:
+    base_reply = _strip_inline_source_citations(_strip_source_note(reply))
+    source_note = local_knowledge_service.build_source_note(
+        prompt=prompt,
+        reply=base_reply,
+        active_target=active_target,
+        active_targets=active_targets or [],
+        uploaded_file_names=uploaded_file_names or [],
+    )
+    if not source_note:
+        return base_reply
+    return f"{base_reply}\n\n{source_note}".strip()
+
+
 def _run_chat_completion(request: ChatRequest) -> tuple[str, dict[str, Any], str | None, list[str], list[str], list[dict[str, Any]]]:
     if request.session_id:
         existing_messages = _load_session_messages(request.session_id)
     else:
         existing_messages = _history_to_messages(request.chat_history)
+    model_messages = _sanitize_history_for_model(existing_messages)
 
     detected_targets, active_target, active_targets = _normalize_targets(
         request.prompt,
@@ -287,13 +447,27 @@ def _run_chat_completion(request: ChatRequest) -> tuple[str, dict[str, Any], str
         request.active_targets,
     )
 
+    full_prompt = _build_augmented_prompt(
+        prompt=request.prompt,
+        active_target=active_target,
+        active_targets=active_targets,
+    )
+
+    # AI辅助标注（序号1）：
+    # 该调用链体现了“提示增强 -> 智能体执行 -> 结构化载荷回填”的分层流程。
     stream = chat_service.run_query_stream(
-        request.prompt,
-        chat_history=existing_messages,
+        full_prompt,
+        chat_history=model_messages,
         active_target=active_target,
         active_targets=active_targets,
     )
     reply = "".join(chunk for chunk in stream)
+    reply = _append_source_note(
+        reply,
+        prompt=request.prompt,
+        active_target=active_target,
+        active_targets=active_targets,
+    )
     payload = build_response_payload_from_text(reply, source="chat_service")
     return reply, payload, active_target, active_targets, detected_targets, existing_messages
 
@@ -383,7 +557,10 @@ def chat(request: ChatRequest) -> ChatResponse:
     )
     messages = _compose_chat_messages(existing_messages, request.prompt, reply, payload)
     if request.persist:
-        _persist_messages(session_id, messages)
+        if request.session_id:
+            messages = _append_chat_exchange(session_id, request.prompt, reply, payload)
+        else:
+            _persist_messages(session_id, messages)
 
     return ChatResponse(
         session_id=session_id,
@@ -414,24 +591,23 @@ async def chat_stream(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON in form fields: {str(e)}")
 
-    # Process Files
-    uploaded_context = []
+    # Process files
+    uploaded_context: list[str] = []
+    uploaded_file_names: list[str] = []
     if files:
         for file in files:
             content = await file.read()
             parsed_text = FileProcessor.process_file(file.filename, content)
+            if file.filename:
+                uploaded_file_names.append(file.filename)
             if parsed_text:
                 uploaded_context.append(f"--- FILE: {file.filename} ---\n{parsed_text}\n")
-
-    full_prompt = prompt
-    if uploaded_context:
-        context_str = "\n".join(uploaded_context)
-        full_prompt = f"核心分析指令: {prompt}\n\n[以下是用户上传的私有文档数据，请优先基于此数据进行研判]:\n{context_str}"
 
     target_session_id = session_id or _build_unique_session_id(
         extract_session_title([{"role": "user", "content": prompt}])
     )
     existing_messages = _load_session_messages(target_session_id) if session_id else _history_to_messages(history_objs)
+    model_messages = _sanitize_history_for_model(existing_messages)
     
     detected_targets, norm_active_target, norm_active_targets = _normalize_targets(
         prompt,
@@ -439,12 +615,19 @@ async def chat_stream(
         targets_list,
     )
 
+    full_prompt = _build_augmented_prompt(
+        prompt=prompt,
+        active_target=norm_active_target,
+        active_targets=norm_active_targets,
+        uploaded_context=uploaded_context,
+    )
+
     def event_stream() -> Iterable[str]:
         reply_parts: list[str] = []
         try:
             stream = chat_service.run_query_stream(
                 full_prompt,
-                chat_history=existing_messages,
+                chat_history=model_messages,
                 active_target=norm_active_target,
                 active_targets=norm_active_targets,
             )
@@ -454,10 +637,20 @@ async def chat_stream(
                 yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
             reply = "".join(reply_parts)
+            reply = _append_source_note(
+                reply,
+                prompt=prompt,
+                active_target=norm_active_target,
+                active_targets=norm_active_targets,
+                uploaded_file_names=uploaded_file_names,
+            )
             payload = build_response_payload_from_text(reply, source="chat_service")
             messages = _compose_chat_messages(existing_messages, prompt, reply, payload)
             if persist:
-                _persist_messages(target_session_id, messages)
+                if session_id:
+                    messages = _append_chat_exchange(target_session_id, prompt, reply, payload)
+                else:
+                    _persist_messages(target_session_id, messages)
 
             done_payload = {
                 "type": "done",

@@ -86,7 +86,13 @@ def _localize_text(text: str) -> str:
 
 
 def _extract_source_lines(raw_text: str) -> List[str]:
-    matches = re.findall(r"\[\d+\]\s+(.*)", raw_text)
+    section_match = re.search(r"数据来源说明\s*(.*)$", raw_text, flags=re.S)
+    if section_match:
+        section = section_match.group(1)
+        matches = re.findall(r"(?m)^\s*(?:\[\d+\]|\d+\.)\s+(.*)$", section)
+        return [item.strip() for item in matches if item.strip()]
+
+    matches = re.findall(r"(?m)^\s*\[\d+\]\s+(.*)$", raw_text)
     return [item.strip() for item in matches if item.strip()]
 
 
@@ -136,6 +142,109 @@ def _metric_name_from_title(title: str, fallback: str) -> str:
     normalized = _localize_text(title)
     normalized = re.sub(r"(趋势对比|趋势图|趋势|对比图|对比|比较图|图表)$", "", normalized).strip(" ：:-")
     return normalized or fallback
+
+
+def _metric_bucket(label: str) -> str:
+    normalized = _localize_text(label).lower()
+
+    per_share_tokens = ["元/股", "每股", "eps", "bps", "股息"]
+    if any(token in normalized for token in per_share_tokens):
+        return "per_share"
+
+    ratio_tokens = ["%", "率", "roe", "roa", "margin", "yield", "占比"]
+    if any(token in normalized for token in ratio_tokens):
+        return "ratio"
+
+    multiple_tokens = ["倍", "turnover", "pe", "pb", "ps", "ev", "估值倍数"]
+    if any(token in normalized for token in multiple_tokens):
+        return "multiple"
+
+    amount_tokens = [
+        "亿",
+        "万元",
+        "亿元",
+        "元",
+        "收入",
+        "利润",
+        "现金",
+        "净额",
+        "资产",
+        "负债",
+        "市值",
+        "费用",
+        "成本",
+    ]
+    if any(token in normalized for token in amount_tokens):
+        return "amount"
+
+    count_tokens = ["数量", "户", "家", "人数", "用户", "门店", "客户", "台", "件", "单"]
+    if any(token in normalized for token in count_tokens):
+        return "count"
+
+    return "other"
+
+
+def _labels_look_like_snapshot_metrics(labels: List[str]) -> bool:
+    if len(labels) < 2:
+        return False
+    metric_like_count = sum(
+        1
+        for label in labels
+        if _contains_metric_token(label) or _metric_bucket(label) != "other"
+    )
+    return metric_like_count >= max(2, len(labels) // 2)
+
+
+def _bucket_display_name(bucket: str) -> str:
+    return {
+        "amount": "规模类指标",
+        "ratio": "比率类指标",
+        "per_share": "每股类指标",
+        "multiple": "倍数类指标",
+        "count": "数量类指标",
+        "other": "其他指标",
+    }.get(bucket, "指标")
+
+
+def _build_single_metric_snapshot_verdict(entity_name: str, label: str, value: float) -> str:
+    return f"图中显示，{entity_name}在{label}上的当前数值为{_format_number(value)}。"
+
+
+def _build_snapshot_metric_group_charts(entity_name: str, labels: List[str], values: List[float]) -> List[ChartPayload]:
+    grouped_items: Dict[str, List[Tuple[str, float]]] = {}
+    for label, value in zip(labels, values):
+        bucket = _metric_bucket(label)
+        grouped_items.setdefault(bucket, []).append((label, value))
+
+    charts: List[ChartPayload] = []
+    has_recognized_bucket = any(grouped_items.get(bucket) for bucket in ("amount", "ratio", "per_share", "multiple", "count"))
+    for bucket in ("amount", "ratio", "per_share", "multiple", "count", "other"):
+        items = grouped_items.get(bucket) or []
+        if not items:
+            continue
+        if bucket == "other" and has_recognized_bucket:
+            continue
+
+        bucket_labels = [label for label, _ in items]
+        bucket_values = [value for _, value in items]
+        verdict = (
+            _build_single_entity_metric_snapshot_verdict(entity_name, bucket_labels, bucket_values)
+            if len(bucket_values) >= 2
+            else _build_single_metric_snapshot_verdict(entity_name, bucket_labels[0], bucket_values[0])
+        )
+        display_name = _bucket_display_name(bucket)
+        charts.append(
+            _build_chart(
+                title=f"{entity_name}{display_name}",
+                x_labels=bucket_labels,
+                datasets=[{"name": entity_name, "data": bucket_values}],
+                analyst_verdict=verdict,
+                chart_type="bar",
+                strategic_highlight=display_name,
+            )
+        )
+
+    return charts
 
 
 def _build_chart(
@@ -285,6 +394,11 @@ def _sanitize_chart(chart: ChartPayload) -> Optional[ChartPayload]:
     chart_type = str(chart.get("chart_type") or "bar").lower()
     temporal = _looks_temporal_axis(x_labels)
 
+    if not temporal and len(datasets) == 1 and _labels_look_like_snapshot_metrics(x_labels):
+        bucket_set = {_metric_bucket(label) for label in x_labels}
+        if len(bucket_set) > 1 or "other" in bucket_set:
+            return None
+
     if chart_type == "line" and not temporal:
         chart_type = "bar"
 
@@ -342,6 +456,10 @@ def _normalize_explicit_chart(chart: ChartPayload) -> List[ChartPayload]:
         datasets.append(normalized)
 
     if len(x_labels) < 2 or len(datasets) < 2:
+        if len(x_labels) >= 2 and len(datasets) == 1 and _labels_look_like_snapshot_metrics(x_labels):
+            title = _localize_text(str(chart.get("title") or chart.get("chart_name") or datasets[0]["name"]))
+            entity_name = _metric_name_from_title(title, datasets[0]["name"])
+            return _build_snapshot_metric_group_charts(entity_name, x_labels, datasets[0]["data"])
         return []
 
     temporal = _looks_temporal_axis(x_labels)
@@ -351,7 +469,18 @@ def _normalize_explicit_chart(chart: ChartPayload) -> List[ChartPayload]:
     if not _series_names_look_like_metrics([item["name"] for item in datasets]):
         return []
 
-    split_charts: List[ChartPayload] = []
+    title = _localize_text(str(chart.get("title") or chart.get("chart_name") or "关键指标趋势总览"))
+    latest_values = [dataset["data"][-1] for dataset in datasets]
+    overview_chart = _build_chart(
+        title=title,
+        x_labels=x_labels,
+        datasets=datasets,
+        analyst_verdict=_build_category_comparison_verdict("关键指标", [dataset["name"] for dataset in datasets], latest_values),
+        chart_type="line",
+        strategic_highlight=f"{x_labels[0]}-{x_labels[-1]}",
+    )
+
+    split_charts: List[ChartPayload] = [overview_chart]
     for dataset in datasets:
         metric_name = _metric_name_from_title(dataset["name"], dataset["name"])
         split_charts.append(
@@ -465,6 +594,39 @@ def _is_company_year_matrix(headers: List[str]) -> bool:
     return len([item for item in parsed if item is not None]) >= 4
 
 
+def _parse_year_header(header: str) -> Optional[str]:
+    match = re.fullmatch(r"(19|20)\d{2}(?:年)?", header.strip())
+    if not match:
+        return None
+    return header.strip().replace("年", "")
+
+
+def _is_metric_year_matrix(headers: List[str], rows: List[List[str]]) -> bool:
+    if len(headers) < 3 or not rows:
+        return False
+    year_headers = [_parse_year_header(header) for header in headers[1:]]
+    if len([year for year in year_headers if year is not None]) < 2:
+        return False
+    metric_labels = [row[0].strip() for row in rows if row and row[0].strip()]
+    if len(metric_labels) != len(rows):
+        return False
+    return _labels_look_like_snapshot_metrics(metric_labels)
+
+
+def _is_metric_entity_matrix(headers: List[str], rows: List[List[str]], numeric_columns: List[int]) -> bool:
+    if len(headers) < 3 or not rows or len(numeric_columns) < 2:
+        return False
+    metric_labels = [row[0].strip() for row in rows if row and row[0].strip()]
+    if len(metric_labels) != len(rows):
+        return False
+    non_numeric_headers = [headers[index].strip() for index in numeric_columns if index < len(headers)]
+    if len(non_numeric_headers) < 2:
+        return False
+    if any(_parse_year_header(header) is not None for header in non_numeric_headers):
+        return False
+    return _labels_look_like_snapshot_metrics(metric_labels)
+
+
 def _build_company_year_matrix_charts(headers: List[str], rows: List[List[str]]) -> List[ChartPayload]:
     parsed_headers: List[Tuple[int, str, str]] = []
     for index, header in enumerate(headers[1:], start=1):
@@ -487,7 +649,7 @@ def _build_company_year_matrix_charts(headers: List[str], rows: List[List[str]])
     year_order.sort()
 
     charts: List[ChartPayload] = []
-    for row in rows[:8]:
+    for row in rows:
         metric_name = row[0].strip()
         datasets: List[Dict[str, Any]] = []
 
@@ -534,6 +696,88 @@ def _build_company_year_matrix_charts(headers: List[str], rows: List[List[str]])
     return charts
 
 
+def _build_metric_entity_matrix_charts(headers: List[str], rows: List[List[str]], numeric_columns: List[int]) -> List[ChartPayload]:
+    entity_labels = [_localize_text(headers[index]) for index in numeric_columns if index < len(headers)]
+    if len(entity_labels) < 2:
+        return []
+
+    charts: List[ChartPayload] = []
+    for row in rows:
+        if not row or not row[0].strip():
+            continue
+
+        metric_name = _localize_text(row[0].strip())
+        values: List[float] = []
+        is_complete = True
+        for column_index in numeric_columns:
+            if column_index >= len(row):
+                is_complete = False
+                break
+            parsed_value = _parse_float(row[column_index])
+            if parsed_value is None:
+                is_complete = False
+                break
+            values.append(parsed_value)
+
+        if not is_complete or len(values) != len(entity_labels) or len(values) < 2:
+            continue
+
+        charts.append(
+            _build_chart(
+                title=f"{metric_name}公司对比",
+                x_labels=entity_labels,
+                datasets=[{"name": metric_name, "data": values}],
+                analyst_verdict=_build_category_comparison_verdict(metric_name, entity_labels, values),
+                chart_type="bar",
+                strategic_highlight="公司横向对比",
+            )
+        )
+
+    return charts
+
+
+def _build_metric_year_matrix_charts(headers: List[str], rows: List[List[str]]) -> List[ChartPayload]:
+    year_headers = [parsed for parsed in (_parse_year_header(header) for header in headers[1:]) if parsed is not None]
+    if len(year_headers) < 2:
+        return []
+
+    charts: List[ChartPayload] = []
+    for row in rows:
+        if not row or not row[0].strip():
+            continue
+
+        metric_name = _localize_text(row[0].strip())
+        values: List[float] = []
+        is_complete = True
+        for column_index in range(1, len(headers)):
+            if _parse_year_header(headers[column_index]) is None:
+                continue
+            if column_index >= len(row):
+                is_complete = False
+                break
+            parsed_value = _parse_float(row[column_index])
+            if parsed_value is None:
+                is_complete = False
+                break
+            values.append(parsed_value)
+
+        if not is_complete or len(values) != len(year_headers) or len(values) < 2:
+            continue
+
+        charts.append(
+            _build_chart(
+                title=f"{metric_name}年度对比",
+                x_labels=year_headers,
+                datasets=[{"name": metric_name, "data": values}],
+                analyst_verdict=_build_single_series_temporal_verdict(metric_name, year_headers, values),
+                chart_type="line" if len(values) >= 3 else "bar",
+                strategic_highlight=f"{year_headers[0]}-{year_headers[-1]}",
+            )
+        )
+
+    return charts
+
+
 def _build_standard_table_charts(headers: List[str], rows: List[List[str]]) -> List[ChartPayload]:
     if len(headers) < 2 or not rows:
         return []
@@ -559,11 +803,14 @@ def _build_standard_table_charts(headers: List[str], rows: List[List[str]]) -> L
     is_temporal = _looks_temporal_axis(row_labels)
     charts: List[ChartPayload] = []
 
+    if not is_temporal and _is_metric_entity_matrix(headers, rows, numeric_columns):
+        return _build_metric_entity_matrix_charts(headers, rows, numeric_columns)
+
     if len(rows) == 1 and len(numeric_columns) >= 2:
         entity_name = rows[0][0].strip()
         metric_labels: List[str] = []
         values: List[float] = []
-        for column_index in numeric_columns[:8]:
+        for column_index in numeric_columns:
             parsed_value = _parse_float(rows[0][column_index])
             if parsed_value is None:
                 continue
@@ -571,19 +818,10 @@ def _build_standard_table_charts(headers: List[str], rows: List[List[str]]) -> L
             values.append(parsed_value)
 
         if len(values) >= 2:
-            charts.append(
-                _build_chart(
-                    title=f"{entity_name}核心指标对比",
-                    x_labels=metric_labels,
-                    datasets=[{"name": entity_name, "data": values}],
-                    analyst_verdict=_build_single_entity_metric_snapshot_verdict(entity_name, metric_labels, values),
-                    chart_type="bar",
-                    strategic_highlight="横向对比",
-                )
-            )
+            charts.extend(_build_snapshot_metric_group_charts(entity_name, metric_labels, values))
         return charts
 
-    for column_index in numeric_columns[:8]:
+    for column_index in numeric_columns:
         metric_name = _localize_text(headers[column_index])
         values: List[float] = []
         for row in rows:
@@ -635,6 +873,8 @@ def _auto_visualize_table_charts(text: str) -> List[ChartPayload]:
     headers, rows = parsed
     if _is_company_year_matrix(headers):
         return _build_company_year_matrix_charts(headers, rows)
+    if _is_metric_year_matrix(headers, rows):
+        return _build_metric_year_matrix_charts(headers, rows)
     return _build_standard_table_charts(headers, rows)
 
 
@@ -648,8 +888,7 @@ def build_response_payload_from_text(text: str, source: str = "unknown") -> Dict
         normalized_explicit_charts.extend(_normalize_explicit_chart(chart))
     charts = normalized_explicit_charts
 
-    if not charts:
-        charts.extend(_auto_visualize_table_charts(body_text))
+    charts.extend(_auto_visualize_table_charts(body_text))
 
     charts = _dedupe_charts(charts)
 

@@ -41,6 +41,12 @@ class FileProcessor:
 
     @staticmethod
     def _parse_pdf(file_bytes: bytes) -> str:
+        # AI辅助标注（序号7）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-04-08 12:50-16:40。
+        # 对应表格：长文本处理策略。
+        # PDF 按页拆分提取、再拼接为可供后续摘要与上下文构建使用的文本，
+        # 参考了 AI 给出的“分段处理 -> 摘要拼接 -> 控制上下文长度”思路，
+        # 后续由人工结合文件解析流程落地为当前实现。
         text_content = []
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:

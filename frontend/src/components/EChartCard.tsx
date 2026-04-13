@@ -175,6 +175,8 @@ function buildOption(chart: ChartData) {
           position: "top",
           color: "#dffcff",
           fontWeight: 700,
+          distance: 10,
+          overflow: "break",
           formatter: ({ value }: { value: number }) => formatNumber(value),
         },
         markPoint: {
@@ -182,6 +184,7 @@ function buildOption(chart: ChartData) {
           label: {
             color: "#08131f",
             fontWeight: 800,
+            padding: [4, 6],
             formatter: ({ data }: { data: { name: string; value: number } }) =>
               `${data.name}\n${formatNumber(data.value)}`,
           },
@@ -197,10 +200,16 @@ function buildOption(chart: ChartData) {
             type: "dashed",
           },
           label: {
+            show: true,
             color: "#9ddceb",
-            formatter: "均值",
+            position: "insideStartTop",
+            distance: 12,
+            padding: [4, 8],
+            backgroundColor: "rgba(8, 19, 31, 0.82)",
+            borderRadius: 8,
+            formatter: "平均值",
           },
-          data: [{ type: "average", name: "均值" }],
+          data: [{ type: "average", name: "平均值" }],
         },
         areaStyle: {
           color: {
@@ -233,6 +242,8 @@ function buildOption(chart: ChartData) {
         position: "top",
         color: "#dffcff",
         fontWeight: 700,
+        distance: 10,
+        overflow: "break",
         formatter: ({ value }: { value: number }) => formatNumber(value),
       },
     };
@@ -263,16 +274,18 @@ function buildOption(chart: ChartData) {
       },
     },
     legend: {
-      bottom: 0,
+      bottom: 4,
+      left: 14,
+      right: 14,
       textStyle: { color: "#94a3b8" },
     },
     grid: isPie
       ? undefined
       : {
-          left: 24,
-          right: 24,
-          top: 42,
-          bottom: isDenseAxis ? 88 : 68,
+          left: 34,
+          right: 54,
+          top: 64,
+          bottom: isDenseAxis ? 96 : 76,
           containLabel: true,
         },
     xAxis: isPie

@@ -33,6 +33,12 @@ class TrackScoringService:
         return frame, metric_keys, usable_metrics
 
     def _build_weights(self, metric_frame: pd.DataFrame) -> pd.Series:
+        # AI辅助标注（序号5）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-04-06 08:40-12:30。
+        # 对应表格：企业对标分析方法设计。
+        # 这里的多指标标准化、权重计算与综合评分流程，
+        # 参考了 AI 提供的“多指标评价 + 权重分配 + TOPSIS/近似 TOPSIS 排序”思路，
+        # 后续由人工按财务指标口径、样本规模和展示方式调整为当前实现。
         if metric_frame.empty:
             return pd.Series(dtype=float)
         if len(metric_frame.columns) == 1:

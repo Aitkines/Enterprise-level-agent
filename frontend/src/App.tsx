@@ -1,4 +1,4 @@
-﻿import { FormEvent, KeyboardEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
+﻿import { FormEvent, KeyboardEvent, startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EChartCard } from "./components/EChartCard";
 import {
   buildReport,
@@ -66,6 +66,10 @@ function dedupeStrings(values: Array<string | null | undefined>) {
 
 const sourceContextPattern = /(来源|数据来源|资料来源|参考|引自|choice|wind|同花顺|东方财富|雪球|巨潮|ifind)/i;
 const companySplitPattern = /(?:相较于|相比|对比|强于|弱于|优于|劣于|高于|低于|以及|与|和|及|、|的)/;
+const companyLeadNoisePattern =
+  /^(?:(?:如果您?|如您|如果)?需要|想(?:看|了解|研究)?|请(?:帮我)?|帮我|帮忙|麻烦|给我|请问|看看|看下|分析(?:一下|下)?|研究(?:一下|下)?|解读(?:一下|下)?|介绍(?:一下|下)?|评估(?:一下|下)?|判断(?:一下|下)?|聊聊|说说|关于|对于|针对|围绕|聚焦)\s*/;
+const companyEmbeddedNoisePattern =
+  /(?:如果|需要|想要|想看|想了解|请|帮我|帮忙|麻烦|给我|看看|看下|分析|研究|解读|介绍|评估|判断|建议|怎么|什么|为何|是否|一下|继续)/;
 const companyStopwords = [
   "盈利能力",
   "分析主体",
@@ -86,6 +90,11 @@ const companyStopwords = [
   "主体",
   "研判",
   "对比",
+  "如果",
+  "需要",
+  "帮我",
+  "请问",
+  "建议",
 ];
 
 function normalizeCompanyCandidate(raw: string) {
@@ -93,6 +102,15 @@ function normalizeCompanyCandidate(raw: string) {
     .replace(/^(当前分析主体为|当前研究主体为|研究主体为|分析主体为|主体为|当前主体为|公司为|企业为|其中|关于)/, "")
     .trim()
     .replace(/^[：:，,。;；\s]+|[：:，,。;；\s]+$/g, "");
+
+  let strippedCandidate = candidate;
+  while (companyLeadNoisePattern.test(strippedCandidate)) {
+    strippedCandidate = strippedCandidate
+      .replace(companyLeadNoisePattern, "")
+      .trim()
+      .replace(/^[：:，,。;；\s]+|[：:，,。;；\s]+$/g, "");
+  }
+  candidate = strippedCandidate;
 
   const parts = candidate
     .split(companySplitPattern)
@@ -112,7 +130,21 @@ function normalizeCompanyCandidate(raw: string) {
   if (companyStopwords.some((keyword) => candidate.includes(keyword))) {
     return "";
   }
+  if (companyEmbeddedNoisePattern.test(candidate)) {
+    return "";
+  }
   return candidate;
+}
+
+function formatStructuredTargetLabel(rawTarget: string | null | undefined, symbol: string) {
+  const targetText = String(rawTarget ?? "")
+    .replace(/\(\s*\d{6}(?:\.[A-Za-z]{2})?\s*\)/g, "")
+    .trim();
+  const company = normalizeCompanyCandidate(targetText);
+  if (!company || !symbol) {
+    return "";
+  }
+  return `${company}(${symbol})`;
 }
 
 function extractStructuredTargetsFromText(text: string) {
@@ -172,7 +204,7 @@ function deriveTargetsFromMessages(messages: ChatMessage[]) {
 function resolveTargetLabel(target: string, messages: ChatMessage[]) {
   const symbol = extractSymbol(target);
   if (!symbol) {
-    return target;
+    return "";
   }
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -190,7 +222,7 @@ function resolveTargetLabel(target: string, messages: ChatMessage[]) {
     }
   }
 
-  return symbol;
+  return formatStructuredTargetLabel(target, symbol);
 }
 
 function formatFileSize(file: File) {
@@ -409,10 +441,124 @@ function extractCharts(payload?: { chart?: ChartData | null; charts?: ChartData[
   }
 
   if (payload.charts?.length) {
-    return payload.charts.filter((chart): chart is ChartData => Boolean(chart));
+    return payload.charts
+      .filter((chart): chart is ChartData => Boolean(chart))
+      .flatMap((chart) => expandMeaningfulCharts(chart));
   }
 
-  return payload.chart ? [payload.chart] : [];
+  return payload.chart ? expandMeaningfulCharts(payload.chart) : [];
+}
+
+function isTemporalAxis(labels: string[]) {
+  if (labels.length < 2) {
+    return false;
+  }
+  return labels.every((label) => /^(19|20)\d{2}(年)?$/.test(label.trim()));
+}
+
+function chartMetricBucket(label?: string) {
+  const normalized = String(label ?? "").toLowerCase();
+  if (!normalized) {
+    return "other";
+  }
+  if (["元/股", "每股", "eps", "bps", "股息"].some((token) => normalized.includes(token))) {
+    return "per_share";
+  }
+  if (["%", "率", "roe", "roa", "margin", "yield", "占比"].some((token) => normalized.includes(token))) {
+    return "ratio";
+  }
+  if (["倍", "turnover", "pe", "pb", "ps", "ev", "估值倍数"].some((token) => normalized.includes(token))) {
+    return "multiple";
+  }
+  if (
+    ["亿", "亿元", "万元", "元", "收入", "利润", "现金", "净额", "资产", "负债", "市值", "费用", "成本"].some((token) =>
+      normalized.includes(token),
+    )
+  ) {
+    return "amount";
+  }
+  if (["数量", "户", "家", "人数", "用户", "门店", "客户", "台", "件", "单"].some((token) => normalized.includes(token))) {
+    return "count";
+  }
+  return "other";
+}
+
+function labelsLookLikeSnapshotMetrics(labels: string[]) {
+  if (labels.length < 2) {
+    return false;
+  }
+  const metricLikeCount = labels.filter((label) => chartMetricBucket(label) !== "other").length;
+  return metricLikeCount >= Math.max(2, Math.floor(labels.length / 2));
+}
+
+function bucketDisplayName(bucket: string) {
+  return (
+    {
+      amount: "规模类指标",
+      ratio: "比率类指标",
+      per_share: "每股类指标",
+      multiple: "倍数类指标",
+      count: "数量类指标",
+      other: "其他指标",
+    }[bucket] ?? "指标"
+  );
+}
+
+function expandMeaningfulCharts(chart: ChartData): ChartData[] {
+  const xLabels = (chart.x_labels ?? []).map((label) => String(label ?? "").trim()).filter(Boolean);
+  const datasets = (chart.datasets ?? chart.series ?? []).filter(
+    (dataset) => dataset && Array.isArray(dataset.data) && dataset.data.length === xLabels.length,
+  );
+
+  if (xLabels.length < 2 || datasets.length !== 1 || isTemporalAxis(xLabels) || !labelsLookLikeSnapshotMetrics(xLabels)) {
+    return [chart];
+  }
+
+  const grouped = new Map<string, Array<{ label: string; value: number }>>();
+  xLabels.forEach((label, index) => {
+    const rawValue = Number(datasets[0].data[index]);
+    if (!Number.isFinite(rawValue)) {
+      return;
+    }
+    const bucket = chartMetricBucket(label);
+    const items = grouped.get(bucket) ?? [];
+    items.push({ label, value: rawValue });
+    grouped.set(bucket, items);
+  });
+
+  const recognizedBuckets = ["amount", "ratio", "per_share", "multiple", "count"].filter(
+    (bucket) => (grouped.get(bucket) ?? []).length > 0,
+  );
+  const hasRecognizedBuckets = recognizedBuckets.length > 0;
+  const bucketOrder = ["amount", "ratio", "per_share", "multiple", "count", "other"];
+
+  const splitCharts = bucketOrder.flatMap((bucket) => {
+    const items = grouped.get(bucket) ?? [];
+    if (!items.length) {
+      return [];
+    }
+    if (bucket === "other" && hasRecognizedBuckets) {
+      return [];
+    }
+
+    return [
+      {
+        ...chart,
+        title: `${chart.title ?? chart.chart_name ?? datasets[0].name ?? "指标"}-${bucketDisplayName(bucket)}`,
+        x_labels: items.map((item) => item.label),
+        datasets: [
+          {
+            ...datasets[0],
+            data: items.map((item) => item.value),
+          },
+        ],
+        series: undefined,
+        strategic_highlight: bucketDisplayName(bucket),
+      } satisfies ChartData,
+    ];
+  });
+
+  return splitCharts.length ? splitCharts : [chart];
 }
 
 function buildChartSignature(chart: ChartData) {
@@ -452,6 +598,27 @@ function cleanMessageContent(text: string) {
     .replace(/\[CHART_DATA\][\s\S]*?\[\/CHART_DATA\]/g, "")
     .replace(/\[CHART_DATA\][\s\S]*$/g, "")
     .trim();
+}
+
+function splitSourceNoteSection(text: string) {
+  const cleaned = cleanMessageContent(text);
+  if (!cleaned) {
+    return { bodyText: "", sourceNote: "" };
+  }
+
+  const inlineMarker = "\n数据来源说明";
+  let markerIndex = cleaned.lastIndexOf(inlineMarker);
+  if (markerIndex < 0 && cleaned.startsWith("数据来源说明")) {
+    markerIndex = 0;
+  }
+
+  if (markerIndex < 0) {
+    return { bodyText: cleaned, sourceNote: "" };
+  }
+
+  const sourceNote = cleaned.slice(markerIndex === 0 ? 0 : markerIndex + 1).trim();
+  const bodyText = cleaned.slice(0, markerIndex).trim();
+  return { bodyText, sourceNote };
 }
 
 function isMarkdownTableLine(line: string) {
@@ -686,6 +853,124 @@ function renderFormattedContent(text: string) {
   );
 }
 
+function renderAssistantBody(text: string, sources?: string[] | null, keyPrefix = "assistant-body") {
+  const { bodyText, sourceNote } = splitSourceNoteSection(text);
+  const dedupedSources = dedupeStrings(sources ?? []);
+  const normalizedSourceNote =
+    sourceNote ||
+    (dedupedSources.length
+      ? ["数据来源说明", ...dedupedSources.map((source, index) => `${index + 1}. ${source}`)].join("\n")
+      : "");
+
+  return (
+    <>
+      {bodyText ? renderFormattedContent(bodyText) : null}
+      {normalizedSourceNote ? (
+        <details className="source-disclosure">
+          <summary className="source-disclosure__summary">查看数据来源</summary>
+          <div className="source-disclosure__panel">{renderFormattedContent(normalizedSourceNote)}</div>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
+interface TimelineRowProps {
+  rowKey: string;
+  role: "user" | "assistant";
+  metaLabel: string;
+  body: ReactNode;
+  charts: ChartData[];
+  emptyText: string;
+  measureToken: string | number;
+  isStreaming?: boolean;
+}
+
+function TimelineRow({
+  rowKey,
+  role,
+  metaLabel,
+  body,
+  charts,
+  emptyText,
+  measureToken,
+  isStreaming = false,
+}: TimelineRowProps) {
+  const messageSideRef = useRef<HTMLDivElement | null>(null);
+  const [panelMaxHeight, setPanelMaxHeight] = useState<number | null>(null);
+  const shouldScrollCharts = role === "assistant" && charts.length >= 3 && panelMaxHeight !== null;
+
+  useEffect(() => {
+    if (role !== "assistant") {
+      setPanelMaxHeight(null);
+      return;
+    }
+
+    const element = messageSideRef.current;
+    if (!element) {
+      setPanelMaxHeight(null);
+      return;
+    }
+
+    const updateHeight = () => {
+      const messageHeight = Math.max(Math.floor(element.getBoundingClientRect().height), 0);
+      const minChartViewport = 680;
+      const viewportBound =
+        typeof window !== "undefined"
+          ? Math.max(window.innerHeight - 220, 560)
+          : 760;
+      const nextHeight = Math.min(Math.max(messageHeight, minChartViewport), viewportBound);
+      setPanelMaxHeight(nextHeight || null);
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => updateHeight());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measureToken, role]);
+
+  return (
+    <div className={`timeline-row ${role === "user" ? "is-user" : "is-assistant"} ${isStreaming ? "is-streaming" : ""}`}>
+      <div className="message-side" ref={messageSideRef}>
+        <article className={`message-bubble ${role === "user" ? "is-user" : "is-assistant"} ${isStreaming ? "is-streaming" : ""}`}>
+          <div className="message-bubble__meta">{metaLabel}</div>
+          <div className="message-bubble__body">{body}</div>
+        </article>
+      </div>
+
+      <div className="chart-side">
+        {role === "assistant" ? (
+          <div className="timeline-chart-panel" style={panelMaxHeight ? { maxHeight: `${panelMaxHeight}px` } : undefined}>
+            <div className="timeline-chart-panel__header">
+              <span className="eyebrow">对应可视化</span>
+              <span className="timeline-chart-panel__count">{charts.length ? `${charts.length} 张图` : "本轮未生成图"}</span>
+            </div>
+            {charts.length ? (
+              <div
+                className={`timeline-chart-stack ${shouldScrollCharts ? "is-scrollable" : ""}`}
+                style={shouldScrollCharts ? { maxHeight: `${Math.max(panelMaxHeight! - 78, 0)}px` } : undefined}
+              >
+                {charts.map((chart, chartIndex) => (
+                  <EChartCard key={`${rowKey}-chart-${chartIndex}`} chart={chart} />
+                ))}
+              </div>
+            ) : (
+              <div className="timeline-chart-empty">{emptyText}</div>
+            )}
+          </div>
+        ) : (
+          <div className="timeline-spacer" />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [nav, setNav] = useState<NavKey>("chat");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -711,6 +996,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("准备开始新一轮研究。");
   const [error, setError] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const reportFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -722,14 +1008,11 @@ export default function App() {
 
   const conversationTargets = useMemo(() => {
     return dedupeStrings([activeTarget, ...activeTargets, ...deriveTargetsFromMessages(messages)]).filter((target) => {
-      if (target === activeTarget) {
-        return true;
-      }
       const symbol = extractSymbol(target);
       if (!symbol) {
         return false;
       }
-      return resolveTargetLabel(target, messages) !== symbol;
+      return Boolean(resolveTargetLabel(target, messages));
     });
   }, [activeTarget, activeTargets, messages]);
   const primaryConversationTarget = useMemo(() => {
@@ -740,10 +1023,12 @@ export default function App() {
   }, [activeTarget, conversationTargets]);
   const targetOptions = useMemo(
     () =>
-      conversationTargets.map((target) => ({
-        value: target,
-        label: resolveTargetLabel(target, messages),
-      })),
+      conversationTargets
+        .map((target) => ({
+          value: target,
+          label: resolveTargetLabel(target, messages),
+        }))
+        .filter((option) => option.label),
     [conversationTargets, messages],
   );
   const selectedFinancialTarget = financialTarget ?? primaryConversationTarget;
@@ -864,6 +1149,29 @@ export default function App() {
   }, [messages.length]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 1200px)");
+    const handleViewportChange = (event: MediaQueryList | MediaQueryListEvent) => {
+      if (!event.matches) {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    handleViewportChange(mediaQuery);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleViewportChange);
+      return () => mediaQuery.removeEventListener("change", handleViewportChange);
+    }
+
+    mediaQuery.addListener(handleViewportChange);
+    return () => mediaQuery.removeListener(handleViewportChange);
+  }, []);
+
+  useEffect(() => {
     const nextPrimaryTarget = primaryConversationTarget;
     setFinancialTarget((current) =>
       current && conversationTargets.includes(current) ? current : nextPrimaryTarget,
@@ -980,6 +1288,7 @@ export default function App() {
       setFinancial(null);
       setComparison(null);
       setReportHtml("");
+      setIsSidebarOpen(false);
       setStatusText(`已打开会话：${detail.session.title}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "打开会话失败。");
@@ -1006,6 +1315,7 @@ export default function App() {
       setFinancial(null);
       setComparison(null);
       setReportHtml("");
+      setIsSidebarOpen(false);
       setStatusText("新会话已创建，可以开始提问或上传资料。");
       await refreshSessions();
     } catch (nextError) {
@@ -1304,8 +1614,10 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ${isNewChatMode ? "app-shell--new-chat" : ""}`}>
-      <aside className="sidebar">
+    <div
+      className={`app-shell ${isNewChatMode ? "app-shell--new-chat" : ""} ${isSidebarOpen ? "app-shell--sidebar-open" : ""}`}
+    >
+      <aside className={`sidebar ${isSidebarOpen ? "is-open" : ""}`}>
         <div className="brand-card">
           <img src="/assets/logo.png" alt="Logo" className="brand-card__logo" />
           <div className="brand-card__info">
@@ -1406,9 +1718,26 @@ export default function App() {
         </section>
       </aside>
 
+      <button
+        aria-label="关闭会话侧栏"
+        className={`sidebar-backdrop ${isSidebarOpen ? "is-visible" : ""}`}
+        onClick={() => setIsSidebarOpen(false)}
+        type="button"
+      />
+
       <main
         className={`main-panel ${nav === "chat" && !isNewChatMode ? "main-panel--chat" : ""} ${isNewChatMode ? "main-panel--new-chat" : ""}`}
       >
+        <div className="responsive-toolbar">
+          <button
+            className="sidebar-toggle"
+            onClick={() => setIsSidebarOpen((current) => !current)}
+            type="button"
+          >
+            {isSidebarOpen ? "关闭会话" : "会话列表"}
+          </button>
+        </div>
+
         {!isNewChatMode ? (
           <header className="topbar">
             <nav className="nav-pills">
@@ -1448,92 +1777,40 @@ export default function App() {
                     {messages.map((message, index) => {
                       const messageCharts =
                         message.role === "assistant" ? dedupeCharts(extractCharts(message.payload ?? null)) : [];
-                      const isChartScrollable = messageCharts.length >= 3;
 
                       return (
-                        <div
+                        <TimelineRow
                           key={`timeline-${message.role}-${index}`}
-                          className={`timeline-row ${message.role === "user" ? "is-user" : "is-assistant"}`}
-                        >
-                          <div className="message-side">
-                            <article className={`message-bubble ${message.role === "user" ? "is-user" : "is-assistant"}`}>
-                              <div className="message-bubble__meta">
-                                {message.role === "user" ? "用户提问" : "AI 助手"}
-                              </div>
-                              <div className="message-bubble__body">
-                                {renderFormattedContent(message.payload?.body ?? message.content)}
-                              </div>
-                              {message.payload?.sources?.length ? (
-                                <div className="source-row">
-                                  {message.payload.sources.map((source) => (
-                                    <span key={source} className="source-chip">
-                                      {source}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </article>
-                          </div>
-
-                          <div className="chart-side">
-                            {message.role === "assistant" ? (
-                              <div className="timeline-chart-panel">
-                                <div className="timeline-chart-panel__header">
-                                  <span className="eyebrow">对应可视化</span>
-                                  <span className="timeline-chart-panel__count">
-                                    {messageCharts.length ? `${messageCharts.length} 张图` : "本轮未生成图"}
-                                  </span>
-                                </div>
-                                {messageCharts.length ? (
-                                  <div className={`timeline-chart-stack ${isChartScrollable ? "is-scrollable" : ""}`}>
-                                    {messageCharts.map((chart, chartIndex) => (
-                                      <EChartCard key={`message-${index}-chart-${chartIndex}`} chart={chart} />
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="timeline-chart-empty">
-                                    这一轮回答没有生成可视化，通常是因为当前内容缺少结构化数据或无需画图。
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="timeline-spacer" />
-                            )}
-                          </div>
-                        </div>
+                          rowKey={`timeline-${message.role}-${index}`}
+                          role={message.role === "assistant" ? "assistant" : "user"}
+                          metaLabel={message.role === "user" ? "用户提问" : "AI 助手"}
+                          body={
+                            message.role === "assistant"
+                              ? renderAssistantBody(
+                                  message.payload?.body ?? message.content,
+                                  message.payload?.sources ?? [],
+                                  `timeline-${index}`,
+                                )
+                              : renderFormattedContent(message.payload?.body ?? message.content)
+                          }
+                          charts={messageCharts}
+                          emptyText="这一轮回答没有生成可视化，通常是因为当前内容缺少结构化数据或无需画图。"
+                          measureToken={`${message.role}-${message.content.length}-${messageCharts.length}`}
+                        />
                       );
                     })}
 
                     {streamingReply ? (
-                      <div className="timeline-row is-assistant is-streaming">
-                        <div className="message-side">
-                          <article className="message-bubble is-assistant is-streaming">
-                            <div className="message-bubble__meta">AI 助手生成中</div>
-                            <div className="message-bubble__body">{renderFormattedContent(streamingReply)}</div>
-                          </article>
-                        </div>
-                        <div className="chart-side">
-                          <div className="timeline-chart-panel">
-                            <div className="timeline-chart-panel__header">
-                              <span className="eyebrow">对应可视化</span>
-                              <span className="timeline-chart-panel__count">
-                                {streamingCharts.length ? `${streamingCharts.length} 张图` : "等待图表生成"}
-                              </span>
-                            </div>
-                            {streamingCharts.length ? (
-                              <div className={`timeline-chart-stack ${streamingCharts.length >= 3 ? "is-scrollable" : ""}`}>
-                                {streamingCharts.map((chart, chartIndex) => (
-                                  <EChartCard key={`stream-chart-${chartIndex}`} chart={chart} />
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="timeline-chart-empty">
-                                图表会在当前轮回答生成完成后自动出现在这里。
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      <TimelineRow
+                        rowKey="timeline-streaming"
+                        role="assistant"
+                        metaLabel="AI 助手生成中"
+                        body={renderAssistantBody(streamingReply, [], "streaming")}
+                        charts={streamingCharts}
+                        emptyText="图表会在当前轮回答生成完成后自动出现在这里。"
+                        measureToken={`streaming-${streamingReply.length}-${streamingCharts.length}`}
+                        isStreaming
+                      />
                     ) : null}
                   </div>
                 </section>
@@ -1656,7 +1933,11 @@ export default function App() {
                           ))}
                         </div>
                         <div className="comparison-summary">
-                          {renderFormattedContent(latestAssistantMessage?.payload?.body ?? latestAssistantMessage?.content ?? "")}
+                          {renderAssistantBody(
+                            latestAssistantMessage?.payload?.body ?? latestAssistantMessage?.content ?? "",
+                            latestAssistantMessage?.payload?.sources ?? [],
+                            "comparison-summary",
+                          )}
                         </div>
                       </section>
 

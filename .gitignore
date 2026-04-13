@@ -54,3 +54,16 @@ backups/
 *.png
 *.webp
 *.mp4
+!frontend/public/assets/logo.png
+
+# Runtime / local app data
+data/sessions/
+data/.report_tmp/
+data/session_meta.json
+frontend/frontend-dev.log
+frontend/frontend-dev.err.log
+frontend/npm_error.log
+frontend/public/assets/logo.zip
+
+# Local archive
+归档_非运行文件/

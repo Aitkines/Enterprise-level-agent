@@ -670,6 +670,11 @@ JSON 结构如下：
         generated_at: datetime,
         active_target: str | None,
     ) -> dict[str, Any]:
+        # AI辅助标注（序号4）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-04-05 13:30-17:15。
+        # 对应表格：报告生成模块设计。
+        # 这里的研究报告提示词骨架与“摘要-章节-风险-结论”结构模板，
+        # 参考了 AI 给出的报告组织建议，后续由人工结合企业分析场景继续细化。
         context = self._build_context(messages)
         if not context:
             return self._fallback_payload_v2(messages, generated_at, active_target)
@@ -700,6 +705,12 @@ JSON 结构如下：
         generated_at: datetime,
         active_target: str | None,
     ) -> dict[str, Any]:
+        # AI辅助标注（序号8）：
+        # 工具/时间：Doubao-Seed-2.0-lite，2026-04-09 10:00-17:00。
+        # 对应表格：模型错误结果修正。
+        # 该处会对模型返回的 report payload 做字段兜底、列表裁剪与结构校验，
+        # 参考了 AI 给出的“结果归一化 + fallback 校验”思路，
+        # 后续由人工结合报告字段规则补全为当前实现。
         fallback = self._fallback_payload_v2(messages, generated_at, active_target)
         summary_points = self._safe_list(
             payload.get("summary_points"),
@@ -1295,6 +1306,8 @@ JSON 结构如下：
             return pdf_path.read_bytes()
 
     def build_html_report(self, messages, generated_at, active_target):
+        # AI辅助标注（序号4）：
+        # 报告导出链路（结构化 payload 归一化 -> HTML 渲染）属于 AI 辅助设计后的人工作品化实现。
         payload = self._request_report_payload(messages, generated_at, active_target)
         normalized_payload = self._normalize_payload(payload, messages, generated_at, active_target)
         html_report = self._render_html(normalized_payload, generated_at, active_target, messages)
