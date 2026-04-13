@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: radiant-surface-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: ARK_BASE_URL
+        value: https://ark.cn-beijing.volces.com/api/v3
+      - key: ARK_API_KEY
+        sync: false
+      - key: DOUBAO_SEED_LITE_KEY
+        sync: false
+      - key: DOUBAO_SEED_LITE_ENDPOINT
+        sync: false

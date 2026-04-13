@@ -1,44 +1,100 @@
-# 光之耀面
+# 光之耀面项目源码说明
 
-企业级研究助理项目，围绕多轮对话、企业财务分析、同行对比、图表展示与研究报告生成，提供一套面向投研与经营分析场景的交互式工作台。
+## 项目简介
 
-当前主架构已经切换为 React 前端 + FastAPI 后端。仓库中仍保留部分早期 Streamlit 代码，便于兼容旧原型，但当前推荐使用前后端分离模式启动与部署。
+光之耀面（Radiant Surface）是一个面向企业研究、投研分析与智能问答场景的项目源码仓库。当前项目主要采用 `React + Vite` 前端与 `FastAPI` 后端的前后端分离架构，支持多轮对话、公司研究、财务分析、对比分析、文件解析和研究报告生成等功能。
 
-## 项目结构
+当前目录保留的是项目运行所需的核心源码、配置文件和启动脚本。
 
-- `frontend/`
-  React + Vite 前端，负责新对话页、会话管理、图表展示、财务/对比/报告页面。
-- `backend/api/`
-  FastAPI 接口层，提供会话、聊天流式接口、财务接口、对比接口、报告接口。
-- `src/application/`
-  业务服务层，包括财务分析、同行对比、报告生成、评分等逻辑。
-- `src/infrastructure/`
-  基础设施能力，包括文件处理、会话存储等。
-- `agent_engine.py`
-  核心智能体提示词与模型调用封装。
-- `api_server.py`
-  FastAPI 本地启动入口。
-- `app.py`
-  早期 Streamlit 入口，当前不是主推荐入口。
+## 文件夹作用
 
-## 当前能力
+本文件夹用于存放项目核心源码、运行配置文件、依赖清单和启动脚本，是项目当前的主源码目录。
 
-- 多轮研究对话与会话管理
-- 上传图片、PDF、Excel、Word、文本文件参与分析
-- 自动解析并展示图表
-- 财务数据查看
-- 同行对比与赛道对标
-- 研究报告 HTML 生成
-- 研究报告 PDF 导出
+## 主要功能
 
-## 技术栈
+- 多轮对话与会话管理
+- 流式聊天输出
+- 公司识别与研究问答
+- 财务指标分析与展示
+- 可比公司对比分析
+- 文件上传与内容解析
+- 报告生成与 PDF 导出
+- 前端图表展示
+
+## 技术架构
 
 - 前端：React 18、TypeScript、Vite、ECharts
 - 后端：FastAPI、Uvicorn
-- Python 侧依赖：pandas、akshare、pdfplumber、langchain、openai 等
-- 模型接入：当前代码中使用火山引擎 Ark / 豆包接口配置
+- 数据与分析能力：pandas、akshare、pdfplumber、langchain、faiss-cpu、rank-bm25
+- 模型接入：Volcengine Ark、Doubao Seed Lite
 
-## 环境要求
+## 当前保留的源码结构说明
+
+### 目录说明
+
+- `frontend/`
+  前端源码目录，包含 React 页面、组件、样式及前端构建配置，用于实现用户界面展示与交互。
+
+- `backend/`
+  后端接口目录，包含 FastAPI 接口层代码，用于提供聊天、会话管理、财务分析、对比分析、报告生成等 API 服务。
+
+- `src/`
+  核心业务源码目录，包含业务服务层、基础设施层、共享模块、领域模型以及兼容界面代码，是项目主要功能逻辑所在位置。
+
+- `static/`
+  静态资源目录，用于存放项目运行时需要使用的静态文件和样式资源。
+
+- `utils/`
+  工具目录，用于存放项目运行或开发过程中使用的辅助脚本和通用处理函数。
+
+- `.streamlit/`
+  Streamlit 相关配置目录，用于兼容项目早期或备用界面运行方式。
+
+### 主要文件说明
+
+- `agent_engine.py`
+  项目核心智能体引擎文件，用于组织研究助手提示词、模型调用及部分分析处理逻辑。
+
+- `api_server.py`
+  后端服务启动入口文件，用于启动 FastAPI 服务。
+
+- `app.py`
+  Streamlit 兼容启动入口文件，用于启动旧版或兼容界面。
+
+- `start_dev.ps1`
+  Windows PowerShell 启动脚本，用于一键启动前后端开发环境，并可在首次使用时安装依赖。
+
+- `start_dev.bat`
+  Windows 批处理启动脚本，用于封装 PowerShell 启动流程，便于双击运行。
+
+- `requirements.txt`
+  Python 依赖清单文件，用于安装项目后端及数据分析相关依赖。
+
+- `docker-compose.yml`
+  Docker 编排文件，用于通过容器方式统一启动前端和后端服务。
+
+- `Dockerfile.backend`
+  后端 Docker 镜像构建文件，用于构建项目后端运行镜像。
+
+- `.env.example`
+  环境变量示例文件，用于说明项目运行所需的接口密钥及配置项。
+
+- `.env`
+  本地环境变量配置文件，用于保存实际运行所需的密钥和参数配置。
+
+- `.gitignore`
+  Git 忽略配置文件，用于指定不纳入版本管理的本地数据、日志、缓存及归档文件。
+
+- `.dockerignore`
+  Docker 忽略配置文件，用于控制镜像构建时不需要打包的文件与目录。
+
+- `readme.txt`
+  纯文本目录说明文件，用于按提交要求说明本文件夹作用及各文件内容。
+
+- `README.md`
+  Markdown 版项目说明文档，用于展示项目简介、结构说明和运行方式。
+
+## 运行环境
 
 - Python 3.10 及以上
 - Node.js 18 及以上
@@ -46,229 +102,107 @@
 
 ## 环境变量
 
-项目根目录下需要 `.env` 文件。当前代码实际使用到的主要变量如下：
+首次运行前，请根据示例文件创建 `.env`：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+当前示例变量如下：
 
 ```env
-ARK_API_KEY=你的密钥
+ARK_API_KEY=your_ark_api_key_here
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-DOUBAO_SEED_LITE_KEY=你的密钥
-DOUBAO_SEED_LITE_ENDPOINT=你的endpoint
+DOUBAO_SEED_LITE_KEY=your_doubao_seed_lite_key_here
+DOUBAO_SEED_LITE_ENDPOINT=your_endpoint_id_here
 ```
 
-说明：
+## 启动方式
 
-- `.env` 已经在 `.gitignore` 中忽略，不会被自动提交。
-- 仓库现在提供了 `.env.example`，可直接复制为 `.env` 后填写真实密钥。
-- 不建议把真实密钥提交到远端仓库。
+### 推荐方式
 
-### 快速生成 `.env`
-
-```bash
-copy .env.example .env
-```
-
-然后把 `.env` 里的占位值替换成你自己的真实配置。
-
-## 本地开发启动
-
-### 一键启动
-
-Windows 下现在可以直接使用根目录脚本一键拉起前后端：
+Windows 下推荐直接使用项目自带脚本：
 
 ```powershell
 .\start_dev.ps1
 ```
 
-如果是第一次运行，建议带上依赖安装参数：
+首次安装依赖可使用：
 
 ```powershell
 .\start_dev.ps1 -InstallDeps
 ```
 
-如果你的 PowerShell 执行策略较严格，也可以直接双击：
+也可以使用：
 
 ```text
 start_dev.bat
 ```
 
-脚本行为说明：
+默认访问地址：
 
-- 若未检测到 `.env`，会自动从 `.env.example` 复制一份并提示你先填写密钥。
-- 会分别打开两个终端窗口，启动后端和前端。
-- 默认后端地址为 `http://127.0.0.1:8000`
-- 默认前端地址为 `http://127.0.0.1:5173`
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:8000`
 
-## Docker 一键部署
+### 手动启动
 
-如果你的电脑已经安装 Docker Desktop，现在也可以直接使用容器方式启动：
+1. 安装 Python 依赖
 
-### 1. 准备环境变量
-
-```bash
-copy .env.example .env
-```
-
-然后把 `.env` 中的占位值替换成真实密钥。
-
-### 2. 一键构建并启动
-
-```bash
-docker compose up --build
-```
-
-启动完成后，默认访问地址：
-
-```text
-前端: http://127.0.0.1:5173
-后端: http://127.0.0.1:8000
-```
-
-说明：
-
-- 前端容器会通过 Nginx 自动把 `/api` 请求转发到后端容器。
-- 因此 Docker 方式下不需要再单独修改前端 API 地址。
-- 停止服务可使用 `docker compose down`
-
-### 1. 安装 Python 依赖
-
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-### 2. 启动后端
+2. 启动后端
 
-在项目根目录执行：
-
-```bash
+```powershell
 python api_server.py
 ```
 
-或直接使用 Uvicorn：
+或：
 
-```bash
+```powershell
 uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-默认后端地址：
-
-```text
-http://127.0.0.1:8000
-```
-
-### 3. 启动前端
-
-进入前端目录执行：
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-默认前端地址：
-
-```text
-http://127.0.0.1:5173
-```
-
-### 4. 前后端联调
-
-前端默认通过 `VITE_API_BASE` 读取后端地址；如果未设置，则回退为：
-
-```text
-http://127.0.0.1:8000
-```
-
-如果你的后端不是这个地址，可在启动前端前设置：
-
-```bash
-set VITE_API_BASE=http://127.0.0.1:8000
-```
-
-Windows PowerShell 可使用：
+3. 启动前端
 
 ```powershell
-$env:VITE_API_BASE="http://127.0.0.1:8000"
+Set-Location frontend
+npm install
 npm run dev
 ```
 
-## 前端构建
+## Docker 启动
 
-```bash
-cd frontend
-npm install
-npm run build
+```powershell
+docker compose up --build
 ```
 
-构建产物位于：
+当前容器服务包括：
 
-```text
-frontend/dist
-```
+- `backend`：暴露 `8000`
+- `frontend`：暴露 `5173`
 
-## 生产部署建议
+## 后端接口概览
 
-推荐采用“前端静态部署 + 后端 API 服务”模式。
+当前主要接口包括：
 
-如果只是希望在新电脑上快速复现项目，也可以优先使用根目录的 `docker-compose.yml`。
+- `GET /api/health`
+- `GET /api/dashboard/overview`
+- `GET /api/dashboard/system-status`
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/{session_id}`
+- `PUT /api/sessions/{session_id}`
+- `DELETE /api/sessions/{session_id}`
+- `POST /api/chat`
+- `POST /api/chat/stream`
+- `GET /api/financial/{target}`
+- `GET /api/comparison/{symbol}`
+- `POST /api/report`
+- `POST /api/report/pdf`
 
-### 后端
+## 补充说明
 
-```bash
-pip install -r requirements.txt
-uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
-```
-
-### 前端
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-将 `frontend/dist` 交给 Nginx、静态托管平台或其他 Web 服务器提供访问。
-
-生产构建时，建议提前设置：
-
-```bash
-VITE_API_BASE=http://你的后端地址:8000
-```
-
-然后再执行 `npm run build`。
-
-## Git 与远端仓库
-
-当前仓库可以本地提交，也可以绑定 GitHub / Gitee 远端仓库。
-
-常用命令：
-
-```bash
-git status
-git add .
-git commit -m "你的提交说明"
-git remote add origin <远端仓库地址>
-git push -u origin main
-```
-
-更详细的远端绑定、推送和部署说明，请查看 [DEPLOYMENT.md](/c:/Users/Lenovo/Desktop/项目agent2.0/DEPLOYMENT.md)。
-
-## 兼容说明
-
-- `app.py` 对应的是早期 Streamlit 原型。
-- 当前主要交付形态为 React + FastAPI。
-- 如果后续继续演进，建议统一围绕 `frontend/ + backend/api/ + src/application/` 这套结构维护。
-
-## 当前版本保存
-
-当前项目已经保存过一次本地 git 提交：
-
-```text
-7d9bb90 feat: save current research assistant version
-```
-
-如果你要继续往远端推送，可以在绑定远端后直接执行：
-
-```bash
-git push -u origin main
-```
+- 当前项目主运行结构为 `frontend/ + backend/ + src/ + 根目录启动文件`。
+- `app.py`、`.streamlit/`、`src/presentation/` 仍保留，用于兼容旧版 Streamlit 运行方式。
