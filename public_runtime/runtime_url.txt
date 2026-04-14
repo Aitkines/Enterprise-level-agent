@@ -1,0 +1,7 @@
+﻿Current public URL (auto-updated by script)
+
+https://aroma-espresso-patience.ngrok-free.dev
+
+Generated at: 2026-04-14 18:50:08
+Note: If ngrok warning page appears first, click Visit Site.
+Stability: URL remains unchanged only when -NgrokDomain is configured.

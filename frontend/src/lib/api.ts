@@ -130,7 +130,8 @@ interface StreamHandlers {
 }
 
 const rawApiBase = import.meta.env.VITE_API_BASE;
-const API_BASE = rawApiBase === undefined ? "http://127.0.0.1:8000" : rawApiBase.replace(/\/$/, "");
+// Default to same-origin APIs so bundled builds work behind a single public URL.
+const API_BASE = rawApiBase === undefined ? "" : rawApiBase.replace(/\/$/, "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

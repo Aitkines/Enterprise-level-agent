@@ -19,7 +19,8 @@ if str(ROOT_DIR) not in sys.path:
 import pandas as pd
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.infrastructure.utils.file_processor import FileProcessor
 
@@ -86,6 +87,7 @@ track_scoring_service = TrackScoringService()
 session_repository = SessionRepository()
 SESSION_META_PATH = ROOT_DIR / "data" / "session_meta.json"
 SESSION_META_LOCK = RLock()
+FRONTEND_DIST_DIR = ROOT_DIR / "frontend" / "dist"
 
 
 def _sanitize_session_id(value: str) -> str:
@@ -775,3 +777,21 @@ def build_report_pdf(request: ReportRequest) -> StreamingResponse:
     filename = f"{filename_seed or 'research_report'}_{generated_at.strftime('%Y%m%d_%H%M')}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers=headers)
+
+
+if FRONTEND_DIST_DIR.exists():
+    assets_dir = FRONTEND_DIST_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+
+    @app.get("/", include_in_schema=False)
+    def serve_frontend_index() -> FileResponse:
+        return FileResponse(FRONTEND_DIST_DIR / "index.html")
+
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend_app(full_path: str) -> FileResponse:
+        candidate = FRONTEND_DIST_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST_DIR / "index.html")

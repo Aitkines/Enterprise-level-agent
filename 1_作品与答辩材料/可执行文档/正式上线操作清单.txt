@@ -1,51 +1,14 @@
-【光之耀面正式上线操作清单】
+正式上线操作清单（极简版）
 
-一、先准备代码仓库
-1. 确认当前项目代码已提交到 GitHub。
-2. 确认仓库中已包含：
-   - render.yaml
-   - frontend/.env.production.example
-   - 前后端源码与部署说明文件
+1. 打开项目根目录 PowerShell。
+2. 执行固定域名启动命令：
+   .\start_public.ps1 -NgrokDomain aroma-espresso-patience.ngrok-free.dev
+3. 等待脚本执行完成。
+4. 检查以下两个文件是否更新：
+   - 1_作品与答辩材料\运行网址.txt
+   - 1_作品与答辩材料\系统访问二维码.png
+5. 将运行网址或二维码发给评审即可访问。
 
-二、部署后端到 Render
-1. 打开 Render 后台，点击 New。
-2. 选择 Blueprint 或 Web Service。
-3. 连接 GitHub 仓库。
-4. 选择当前项目仓库。
-5. 如使用 Blueprint，直接读取根目录 render.yaml。
-6. 如手动创建服务，填写：
-   - Runtime：Python
-   - Build Command：pip install -r requirements.txt
-   - Start Command：uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT
-7. 在 Environment 中填写：
-   - ARK_API_KEY
-   - ARK_BASE_URL
-   - DOUBAO_SEED_LITE_KEY
-   - DOUBAO_SEED_LITE_ENDPOINT
-8. 点击 Create Web Service。
-9. 等待部署完成，记下 Render 生成的后端网址。
-
-三、部署前端到 Vercel
-1. 打开 Vercel 后台，点击 Add New Project。
-2. 导入当前 GitHub 仓库。
-3. 在项目设置中填写：
-   - Framework Preset：Vite
-   - Root Directory：frontend
-   - Build Command：npm run build
-   - Output Directory：dist
-4. 在 Environment Variables 中新增：
-   - VITE_API_BASE = 你的 Render 后端网址
-5. 点击 Deploy。
-6. 等待部署完成，记下 Vercel 生成的前端网址。
-
-四、上线后检查
-1. 打开前端网址，确认首页能正常访问。
-2. 测试聊天功能是否可用。
-3. 测试财务分析、公司对比、报告生成是否可用。
-4. 如前端访问失败，检查 VITE_API_BASE 是否填写正确。
-5. 如后端报错，检查 Render 环境变量是否填写完整。
-
-五、补充提交材料
-1. 将前端网址填写到“运行网址.txt”。
-2. 根据前端网址生成二维码图片。
-3. 如需答辩展示，可将前端网址和二维码同步放入答辩材料。
+补充：
+- 首次打开若出现 ngrok 提示页，点击 Visit Site。
+- 结束演示后可手动关闭 ngrok 与 python 进程。

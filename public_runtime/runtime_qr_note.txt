@@ -1,0 +1,8 @@
+﻿Runtime QR note (auto-updated by script)
+
+URL: https://aroma-espresso-patience.ngrok-free.dev
+Generated at: 2026-04-14 18:50:08
+QR file: runtime_qr.png
+QR generation: success
+
+Stability: URL remains unchanged only when -NgrokDomain is configured.
